@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -e
-pip install -e . --quiet
-exec sentinel start --config sentinel-cloud.json --mode agent
+python -m pip install -e . --quiet
+exec python -m sentinel.runtime.cli start --config sentinel-cloud.json --mode agent
