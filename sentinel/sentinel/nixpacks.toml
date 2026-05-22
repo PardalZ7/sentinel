@@ -1,5 +1,0 @@
-[phases.install]
-cmds = ["pip install -e ."]
-
-[start]
-cmd = "sentinel start --config sentinel-cloud.json --mode agent"
