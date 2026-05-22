@@ -1,0 +1,53 @@
+{
+  "sentinel": {
+    "schema_version": 1,
+    "storage_path": "/data/sentinel",
+
+    "redis": {
+      "host": "localhost",
+      "port": 6379
+    },
+
+    "aws": {
+      "region": "us-east-1"
+    },
+
+    "dashboard": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 8888
+    },
+
+    "control_plane": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 8889
+    },
+
+    "alarm_queue": {
+      "type": "sqs",
+      "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-alarms"
+    },
+
+    "model": {
+      "max_versions": 10,
+      "auto_rollback": true,
+      "isolation_forest": {
+        "n_estimators": 100,
+        "contamination": "auto",
+        "anomaly_threshold": -0.1,
+        "training_window": 1000
+      },
+      "autoencoder": {
+        "hidden_dim": 32,
+        "training_window": 2000,
+        "learning_rate": 0.001,
+        "epochs": 30
+      }
+    },
+
+    "correlation_engines": [],
+    "agents": [],
+    "cortex": []
+  }
+}
