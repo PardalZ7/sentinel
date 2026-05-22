@@ -1172,25 +1172,19 @@ async def launch(
             runner = build_cortex(cortex_config, config, ds)
             tasks.append(asyncio.create_task(runner.run(), name=f"cortex-{cortex_config.name}"))
 
-        if config.control_plane.enabled:
-            from sentinel.runtime.control_plane import create_control_plane_app, start_control_plane
-            cp_app = create_control_plane_app(topology_manager, topology_store)
-            tasks.append(
-                asyncio.create_task(
-                    start_control_plane(
-                        cp_app,
-                        host=config.control_plane.host,
-                        port=config.control_plane.port,
-                    ),
-                    name="control_plane",
-                )
-            )
-
         if config.dashboard.enabled and ds is not None:
             from sentinel.dashboard.server import start_dashboard
+            cp_manager = topology_manager if config.control_plane.enabled else None
+            cp_store = topology_store if config.control_plane.enabled else None
             tasks.append(
                 asyncio.create_task(
-                    start_dashboard(ds, host=config.dashboard.host, port=config.dashboard.port),
+                    start_dashboard(
+                        ds,
+                        host=config.dashboard.host,
+                        port=config.dashboard.port,
+                        topology_manager=cp_manager,
+                        topology_store=cp_store,
+                    ),
                     name="dashboard",
                 )
             )
@@ -1211,7 +1205,7 @@ async def launch(
             else "disabled"
         ),
         control_plane=(
-            f"http://{config.control_plane.host}:{config.control_plane.port}"
+            f"http://{config.dashboard.host}:{config.dashboard.port}/cp"
             if (run_agents and config.control_plane.enabled)
             else "disabled"
         ),

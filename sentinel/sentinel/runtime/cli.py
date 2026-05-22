@@ -138,7 +138,7 @@ def deploy(config: str, sentinel_url: str, topology_id: str | None, no_engines: 
     tid = topology_id or Path(config).stem
 
     async def _run() -> None:
-        url = f"{sentinel_url.rstrip('/')}/topologies/{tid}"
+        url = f"{sentinel_url.rstrip('/')}/cp/topologies/{tid}"
         click.echo(f"Deploying topology '{tid}' to {url} ...")
         async with aiohttp.ClientSession() as session:
             async with session.put(

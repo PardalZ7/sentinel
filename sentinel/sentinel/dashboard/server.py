@@ -689,11 +689,15 @@ async def _handle_alert_payload(request):
 
 # ── App factory ───────────────────────────────────────────────────────────────
 
-def create_app(state: DashboardState):
+def create_app(state: DashboardState, topology_manager=None, topology_store=None):
     from aiohttp import web
 
     app = web.Application(client_max_size=256 * 1024 * 1024)  # 256 MB upload limit
     app["sentinel_state"] = state
+
+    if topology_manager is not None and topology_store is not None:
+        from sentinel.runtime.control_plane import register_routes
+        register_routes(app, topology_manager, topology_store)
 
     app.router.add_get("/", _handle_index)
     app.router.add_get("/api/config", _handle_config)
@@ -722,7 +726,13 @@ def create_app(state: DashboardState):
     return app
 
 
-async def start_dashboard(state: DashboardState, host: str = "0.0.0.0", port: int = 8888) -> None:
+async def start_dashboard(
+    state: DashboardState,
+    host: str = "0.0.0.0",
+    port: int = 8888,
+    topology_manager=None,
+    topology_store=None,
+) -> None:
     """Start the aiohttp dashboard server as an asyncio task."""
     try:
         from aiohttp import web
@@ -730,7 +740,7 @@ async def start_dashboard(state: DashboardState, host: str = "0.0.0.0", port: in
         logger.warning("aiohttp_not_installed", msg="Dashboard disabled. Install aiohttp to enable.")
         return
 
-    app = create_app(state)
+    app = create_app(state, topology_manager=topology_manager, topology_store=topology_store)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host, port)

@@ -1,5 +1,3 @@
-import asyncio
-
 from aiohttp import web
 
 from sentinel.config.schema import SentinelConfig
@@ -8,13 +6,12 @@ from sentinel.logging.logger import get_logger
 logger = get_logger(__name__)
 
 
-def create_control_plane_app(
+def register_routes(
+    app: web.Application,
     topology_manager,  # TopologyManager
     topology_store,    # TopologyStore
-) -> web.Application:
-    """Build the aiohttp application for the Sentinel Control Plane."""
-
-    app = web.Application()
+) -> None:
+    """Mount Control Plane routes onto an existing aiohttp app under /cp."""
 
     async def health(_request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})
@@ -41,9 +38,7 @@ def create_control_plane_app(
         except Exception:
             raise web.HTTPBadRequest(reason="Request body must be valid JSON")
 
-        # Accept either {"config": {...}} or the raw config dict directly
         config_data = body.get("config", body)
-
         try:
             config = SentinelConfig.model_validate(config_data)
         except Exception as exc:
@@ -74,20 +69,8 @@ def create_control_plane_app(
         await topology_manager.remove(tid)
         return web.json_response({"id": tid, "status": "removed"})
 
-    app.router.add_get("/health", health)
-    app.router.add_get("/topologies", list_topologies)
-    app.router.add_get("/topologies/{id}", get_topology)
-    app.router.add_put("/topologies/{id}", deploy_topology)
-    app.router.add_delete("/topologies/{id}", delete_topology)
-
-    return app
-
-
-async def start_control_plane(app: web.Application, host: str, port: int) -> None:
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, host, port)
-    await site.start()
-    logger.info("control_plane_started", host=host, port=port)
-    while True:
-        await asyncio.sleep(3600)
+    app.router.add_get("/cp/health", health)
+    app.router.add_get("/cp/topologies", list_topologies)
+    app.router.add_get("/cp/topologies/{id}", get_topology)
+    app.router.add_put("/cp/topologies/{id}", deploy_topology)
+    app.router.add_delete("/cp/topologies/{id}", delete_topology)

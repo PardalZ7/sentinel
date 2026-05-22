@@ -37,8 +37,6 @@ class DashboardConfig(BaseModel):
 
 class ControlPlaneConfig(BaseModel):
     enabled: bool = False
-    host: str = "0.0.0.0"
-    port: int = 8889
 
 
 class TransportResourceConfig(BaseModel):
