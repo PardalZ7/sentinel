@@ -1,0 +1,14 @@
+{
+  "name": "@sentinel/app03",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@sentinel/shared": "*",
+    "@aws-sdk/client-sqs": "^3.0.0",
+    "@aws-sdk/client-sns": "^3.0.0",
+    "express": "^4.18.0"
+  }
+}

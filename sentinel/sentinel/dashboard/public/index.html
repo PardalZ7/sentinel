@@ -1,0 +1,2126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sentinel — Anomaly Detection Dashboard</title>
+<style>
+  :root {
+    --bg:        #0f172a;
+    --surface:   #1e293b;
+    --surface2:  #263450;
+    --border:    #334155;
+    --text:      #e2e8f0;
+    --muted:     #94a3b8;
+    --accent:    #38bdf8;
+    --green:     #22c55e;
+    --yellow:    #f59e0b;
+    --red:       #ef4444;
+    --purple:    #a78bfa;
+    --training:  #f59e0b;
+    --inference: #22c55e;
+    --cold:      #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo svg { width: 28px; height: 28px; }
+  .logo h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.05em; color: var(--accent); }
+  .logo span { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .header-stats { display: flex; gap: 24px; }
+  .hstat { text-align: center; }
+  .hstat-val { font-size: 20px; font-weight: 700; }
+  .hstat-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); display: inline-block; margin-right: 6px; transition: background 0.3s; }
+  .conn-dot.live { background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Layout ── */
+  .main { display: grid; grid-template-columns: 1fr 380px; gap: 0; height: calc(100vh - 57px); }
+  .left  { overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+  .right { border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── Section titles ── */
+  .section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* ── Cards ── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+    transition: border-color 0.2s;
+  }
+  .card.anomaly-flash { border-color: var(--red); animation: flash 0.6s ease; }
+  @keyframes flash { 0%{box-shadow:0 0 0 3px rgba(239,68,68,.5)} 100%{box-shadow:none} }
+  .card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+  .card-name { font-size: 15px; font-weight: 700; color: var(--text); }
+  .card-sub  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* Phase badge */
+  .badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 20px;
+    border: 1px solid;
+  }
+  .badge.TRAINING  { color: var(--training);  border-color: var(--training);  background: rgba(245,158,11,.1); }
+  .badge.INFERENCE { color: var(--inference); border-color: var(--inference); background: rgba(34,197,94,.1); }
+  .badge.COLD      { color: var(--cold);      border-color: var(--cold);      background: rgba(100,116,139,.1); }
+
+  /* Stats row */
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .stat-box {
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .stat-val { font-size: 18px; font-weight: 700; }
+  .stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; margin-top: 1px; }
+  .stat-val.red    { color: var(--red); }
+  .stat-val.green  { color: var(--green); }
+  .stat-val.yellow { color: var(--yellow); }
+
+  /* Score gauge */
+  .score-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .score-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .gauge-bar { flex: 1; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .gauge-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease, background 0.4s ease; }
+  .score-val { font-size: 12px; font-weight: 700; width: 54px; text-align: right; }
+
+  /* Sparkline */
+  .sparkline-wrap { margin-bottom: 12px; }
+  .sparkline-lbl { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+  canvas.spark { width: 100%; height: 36px; display: block; }
+
+  /* Phase toggle */
+  .phase-btn {
+    width: 100%;
+    padding: 7px;
+    border-radius: 6px;
+    border: 1px solid;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: opacity 0.15s;
+  }
+  .phase-btn:hover { opacity: 0.85; }
+  .phase-btn.to-inference { background: rgba(34,197,94,.12); border-color: var(--green); color: var(--green); }
+  .phase-btn.to-training  { background: rgba(245,158,11,.12); border-color: var(--yellow); color: var(--yellow); }
+  .phase-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Silent indicator */
+  .silent-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-size: 10px;
+    color: var(--red);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: none;
+    align-items: center;
+    gap: 4px;
+  }
+  .silent-badge.show { display: flex; }
+  .silent-badge::before { content: '●'; animation: pulse 1s infinite; }
+
+  /* ── Cortex cards ── */
+  .cortex-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .cortex-inputs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+  .input-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .cortex-alerts { font-size: 22px; font-weight: 700; color: var(--red); }
+  .cortex-alerts span { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+
+  /* ── Right panel: event stream ── */
+  .right-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .clear-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 3px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: border-color 0.15s;
+  }
+  .clear-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Event detail modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: min(760px, 92vw);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .modal-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-header h3 { font-size: 13px; font-weight: 700; color: var(--text); }
+  .modal-close {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 18px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+  }
+  .detail-cell {
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .detail-cell-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+  .detail-cell-val { font-size: 13px; font-weight: 600; font-family: monospace; word-break: break-all; }
+  .payload-section { display: flex; flex-direction: column; gap: 6px; }
+  .payload-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .payload-box {
+    background: #0a0f1a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 11px;
+    color: #a5d6ff;
+    white-space: pre;
+    overflow-x: auto;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .payload-box.missing { color: var(--muted); font-style: italic; }
+  .event-row.anomaly { cursor: pointer; }
+  .event-row.anomaly:hover { background: var(--surface); }
+
+  /* Tabs */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tab {
+    padding: 9px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; flex: 1; overflow-y: auto; }
+  .tab-panel.active { display: flex; flex-direction: column; }
+
+  /* Event log */
+  .event-log { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .peek-hint { padding: 16px 12px; color: var(--muted); font-size: 12px; text-align: center; }
+  .event-row {
+    display: grid;
+    grid-template-columns: 60px 1fr auto;
+    gap: 6px;
+    align-items: start;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--surface2);
+    font-size: 11px;
+    border-left: 3px solid transparent;
+    animation: fadeIn 0.2s ease;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
+  .event-row.anomaly   { border-left-color: var(--red); }
+  .event-row.heartbeat { border-left-color: var(--accent); opacity: 0.65; }
+  .event-row.alert     { border-left-color: var(--purple); background: rgba(167,139,250,.08); }
+  .event-row.silence   { border-left-color: var(--yellow); }
+  .ev-time  { color: var(--muted); font-size: 10px; font-family: monospace; }
+  .ev-agent { font-weight: 700; color: var(--text); }
+  .ev-body  { color: var(--muted); font-size: 10px; margin-top: 1px; }
+  .ev-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; white-space: nowrap; }
+  .ev-badge.ANOMALY    { background: rgba(239,68,68,.15); color: var(--red); }
+  .ev-badge.OK         { background: rgba(34,197,94,.1);  color: var(--green); }
+  .ev-badge.HB         { background: rgba(56,189,248,.1); color: var(--accent); }
+  .ev-badge.ALERT      { background: rgba(167,139,250,.15); color: var(--purple); }
+  .ev-badge.TIMEOUT    { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .ev-badge.SILENT     { background: rgba(245,158,11,.15); color: var(--yellow); }
+
+  /* Alert table */
+  .alert-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .alert-table th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+  }
+  .alert-table td { padding: 7px 12px; border-bottom: 1px solid rgba(51,65,85,.5); vertical-align: top; }
+  .sev-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  .sev-dot.CRITICAL { background: var(--red); }
+  .sev-dot.WARNING  { background: var(--yellow); }
+  .sev-dot.INFO     { background: var(--accent); }
+
+  /* Test card */
+  .test-card {
+    margin-top: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .test-card-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .test-rate-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .test-rate-row input[type=number] {
+    width: 52px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 3px 6px;
+    font-size: 12px;
+  }
+  .test-rate-row label { font-size: 11px; color: var(--muted); }
+  .test-save-btn {
+    padding: 3px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--accent);
+    background: rgba(56,189,248,.1);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .test-save-btn:hover { opacity: 0.8; }
+  .test-run-btn {
+    width: 100%;
+    padding: 5px;
+    border-radius: 5px;
+    border: 1px solid var(--purple);
+    background: rgba(167,139,250,.1);
+    color: var(--purple);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: opacity 0.15s;
+  }
+  .test-run-btn:hover:not(:disabled) { opacity: 0.8; }
+  .test-run-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .test-output {
+    font-size: 11px;
+    color: var(--muted);
+    min-height: 16px;
+    padding: 4px 6px;
+    background: var(--bg);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-family: monospace;
+  }
+  .test-output.ok  { color: var(--green); }
+  .test-output.err { color: var(--red); }
+  .test-output.warn { color: var(--yellow); }
+
+  /* ── Detectors section ── */
+  .detectors-section {
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .detectors-header {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    padding: 5px 10px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+  .det-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 6px;
+    align-items: center;
+    padding: 7px 10px;
+    font-size: 11px;
+    border-bottom: 1px solid rgba(51,65,85,0.4);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .det-row:last-child { border-bottom: none; }
+  .det-row:hover { background: rgba(56,189,248,0.05); }
+  .det-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .det-dot.INFERENCE { background: var(--inference); box-shadow: 0 0 4px var(--inference); }
+  .det-dot.TRAINING  { background: var(--training);  box-shadow: 0 0 4px var(--training); }
+  .det-dot.COLD      { background: var(--cold); }
+  .det-name { font-weight: 600; color: var(--text); font-size: 11px; }
+  .algo-chip {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .algo-chip.IF   { background: rgba(56,189,248,.15);  color: var(--accent); }
+  .algo-chip.cVAE { background: rgba(167,139,250,.15); color: var(--purple); }
+  .algo-chip.MAF  { background: rgba(245,158,11,.15);  color: var(--yellow); }
+  .algo-chip.NRI  { background: rgba(100,116,139,.15); color: var(--cold); }
+  .det-fp { font-size: 10px; white-space: nowrap; }
+  .ait-label { font-size: 10px; white-space: nowrap; user-select: none; margin-left: auto; }
+
+  /* Agent stats row */
+  .agent-stats-row { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); margin-bottom:10px; flex-wrap:wrap; }
+  .agent-stats-row b { color:var(--text); font-weight:700; }
+  .agent-stats-row .sep { color:var(--border); }
+  .agent-stats-row .red  { color:var(--red);   font-weight:700; }
+  .agent-stats-row .green { color:var(--green); font-weight:700; }
+
+  /* Tests button */
+  .tests-btn {
+    width: 100%;
+    margin-top: 8px;
+    padding: 5px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .tests-btn:hover { border-color: var(--purple); color: var(--purple); }
+
+  /* All-detectors shortcut button in detectors header */
+  .det-all-btn {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--green);
+    background: rgba(34,197,94,.1);
+    color: var(--green);
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .det-all-btn:hover { opacity: 0.8; }
+  .det-all-btn.to-training { border-color: var(--yellow); background: rgba(245,158,11,.1); color: var(--yellow); }
+
+  /* Per-detector test rows (inside test modal) */
+  .tdet-row {
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-bottom: 10px;
+  }
+  .tdet-header { display:flex; align-items:center; gap:7px; }
+  .tdet-name { font-weight:700; font-size:12px; color:var(--text); }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* Topology */
+  .topo { background: var(--surface2); border-radius: 8px; padding: 14px 16px; font-family: monospace; font-size: 12px; color: var(--muted); line-height: 1.8; white-space: pre; overflow-x: auto; }
+  .topo .hl { color: var(--accent); }
+
+  /* Model Management */
+  .model-mgmt {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .model-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .model-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    letter-spacing: 0.03em;
+  }
+  .model-btn:hover:not(:disabled) { opacity: 0.8; }
+  .model-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .model-btn.export { background: rgba(56,189,248,.1); border-color: var(--accent); color: var(--accent); }
+  .model-btn.import { background: rgba(34,197,94,.1);  border-color: var(--green);  color: var(--green); }
+  .model-btn.clear  { background: rgba(239,68,68,.1);  border-color: var(--red);    color: var(--red); }
+  .model-status {
+    font-size: 12px;
+    min-height: 18px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: none;
+  }
+  .model-status.show { display: block; }
+  .model-status.ok  { background: rgba(34,197,94,.1);  color: var(--green);  border: 1px solid rgba(34,197,94,.3); }
+  .model-status.err { background: rgba(239,68,68,.1);  color: var(--red);    border: 1px solid rgba(239,68,68,.3); }
+  .model-status.info { background: rgba(56,189,248,.1); color: var(--accent); border: 1px solid rgba(56,189,248,.3); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="14" cy="14" r="13" stroke="#38bdf8" stroke-width="1.5"/>
+      <circle cx="14" cy="14" r="6" stroke="#38bdf8" stroke-width="1.5"/>
+      <circle cx="14" cy="14" r="2" fill="#38bdf8"/>
+      <line x1="14" y1="1" x2="14" y2="7" stroke="#38bdf8" stroke-width="1.5"/>
+      <line x1="14" y1="21" x2="14" y2="27" stroke="#38bdf8" stroke-width="1.5"/>
+      <line x1="1" y1="14" x2="7" y2="14" stroke="#38bdf8" stroke-width="1.5"/>
+      <line x1="21" y1="14" x2="27" y2="14" stroke="#38bdf8" stroke-width="1.5"/>
+    </svg>
+    <div>
+      <h1>SENTINEL</h1>
+      <span>Anomaly Detection</span>
+    </div>
+  </div>
+  <div class="header-stats">
+    <div class="hstat"><div class="hstat-val" id="h-agents">0</div><div class="hstat-lbl">Agents</div></div>
+    <div class="hstat"><div class="hstat-val" id="h-cortex">0</div><div class="hstat-lbl">Cortex</div></div>
+    <div class="hstat"><div class="hstat-val" style="color:var(--red)" id="h-anomalies">0</div><div class="hstat-lbl">Anomalies</div></div>
+    <div class="hstat"><div class="hstat-val" style="color:var(--purple)" id="h-alerts">0</div><div class="hstat-lbl">Alerts</div></div>
+  </div>
+  <div style="display:flex;align-items:center;font-size:12px;color:var(--muted)">
+    <span class="conn-dot" id="conn-dot"></span>
+    <span id="conn-status">Connecting…</span>
+  </div>
+</header>
+
+<div class="main">
+  <div class="left">
+    <!-- Topology -->
+    <div>
+      <div class="section-title">Pipeline Topology</div>
+      <div class="topo" id="topo-box">Loading topology…</div>
+    </div>
+
+    <!-- Agents -->
+    <div>
+      <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>Agents</span>
+        <button class="clear-btn" id="btn-switch-all" onclick="switchAllAgents()" style="font-size:11px;padding:3px 10px">▶ All to Inference</button>
+      </div>
+      <div class="cards" id="agents-grid"></div>
+    </div>
+
+    <!-- Cortex -->
+    <div>
+      <div class="section-title">Cortex</div>
+      <div class="cards" id="cortex-grid"></div>
+    </div>
+
+    <!-- Operations -->
+    <div>
+      <div class="section-title">Operations</div>
+      <div class="model-mgmt">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Queues &amp; Storage</div>
+        <div class="model-actions">
+          <button class="model-btn clear" id="btn-purge-queues" onclick="queuesPurge()">
+            ⊘ Purge Queues
+          </button>
+          <button class="model-btn clear" id="btn-purge-redis" onclick="redisPurge()">
+            ⊘ Purge Redis
+          </button>
+        </div>
+        <div class="model-status" id="ops-status"></div>
+      </div>
+    </div>
+
+    <!-- Model Management -->
+    <div>
+      <div class="section-title">Model Management</div>
+      <div class="model-mgmt">
+        <div class="model-actions">
+          <button class="model-btn export" id="btn-export" onclick="modelsExport()">
+            ↓ Export Models
+          </button>
+          <label class="model-btn import" id="btn-import-label" style="cursor:pointer;">
+            ↑ Import Models
+            <input type="file" accept=".tar.gz,.gz" style="display:none" id="import-file-input" onchange="modelsImport(this)" />
+          </label>
+          <button class="model-btn clear" id="btn-clear" onclick="modelsClear()">
+            ✕ Reset Training
+          </button>
+        </div>
+        <div class="model-status" id="model-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="right-header">
+      Event Buffer
+      <div style="display:flex;gap:6px">
+        <button class="clear-btn" onclick="peekEvents()">⟳ Peek</button>
+        <button class="clear-btn" style="color:var(--red);border-color:var(--red)" onclick="peekErrors()">⚠ Peek Errors</button>
+      </div>
+    </div>
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('events', this)">Events</div>
+      <div class="tab" onclick="switchTab('alerts', this)">Alerts</div>
+    </div>
+    <div class="tab-panel active" id="tab-events">
+      <div class="peek-hint" id="peek-hint">Click <strong>Peek</strong> to load the last 100 events from the server buffer.</div>
+      <div class="event-log" id="event-log"></div>
+    </div>
+    <div class="tab-panel" id="tab-alerts">
+      <table class="alert-table">
+        <thead><tr><th>Time</th><th>Source</th><th>Severity</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody id="alert-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Test modal -->
+<div class="modal-overlay" id="test-modal" onclick="closeTestModalOnOverlay(event)">
+  <div class="modal" style="width:min(480px,92vw)">
+    <div class="modal-header">
+      <h3 id="test-modal-title">Tests</h3>
+      <button class="modal-close" onclick="closeTestModal()">✕</button>
+    </div>
+    <div class="modal-body" id="test-modal-body"></div>
+  </div>
+</div>
+
+<!-- Detector detail modal -->
+<div class="modal-overlay" id="detector-modal" onclick="closeDetectorModalOnOverlay(event)">
+  <div class="modal" style="width:min(420px,92vw)">
+    <div class="modal-header">
+      <h3 id="det-modal-title">Detector</h3>
+      <button class="modal-close" onclick="closeDetectorModal()">✕</button>
+    </div>
+    <div class="modal-body" id="det-modal-body"></div>
+  </div>
+</div>
+
+<!-- Event detail modal -->
+<div class="modal-overlay" id="event-modal" onclick="closeModalOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Event Detail</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────
+const state = { agents: {}, cortex: {}, totalAnomalies: 0, totalAlerts: 0 };
+const sparkData = {};   // agent_name → float[]
+const MAX_SPARK = 60;
+const MAX_LOG   = 100;
+let sentinelConfig = null;
+
+// ── SSE connection ─────────────────────────────────────────────────────
+let es;
+function connect() {
+  es = new EventSource('/api/events');
+  es.onopen = () => setConn(true);
+  es.onerror = () => { setConn(false); setTimeout(connect, 3000); };
+  es.onmessage = e => handleMessage(JSON.parse(e.data));
+}
+
+function setConn(live) {
+  document.getElementById('conn-dot').className = 'conn-dot' + (live ? ' live' : '');
+  document.getElementById('conn-status').textContent = live ? 'Live' : 'Reconnecting…';
+}
+
+// ── Message routing ────────────────────────────────────────────────────
+function handleMessage(msg) {
+  switch(msg.type) {
+    case 'snapshot':
+      applySnapshot(msg.data);
+      break;
+    case 'event':
+      applyEvent(msg.data);
+      break;
+    case 'heartbeat':
+      applyHeartbeat(msg.data);
+      break;
+    case 'alert':
+      applyAlert(msg.data);
+      break;
+    case 'silence':
+      applySilence(msg.data);
+      break;
+    case 'phase_change':
+      applyPhaseChange(msg.data);
+      break;
+    case 'cortex_update':
+      applyCortexUpdate(msg.data);
+      break;
+    case 'agent_test_update':
+      applyAgentTestUpdate(msg.data);
+      break;
+    case 'agent_champion_update':
+      applyAgentChampionUpdate(msg.data);
+      break;
+    case 'detector_update':
+      applyDetectorUpdate(msg.data);
+      break;
+    case 'cortex_test_update':
+      applyCortexTestUpdate(msg.data);
+      break;
+  }
+}
+
+function applySnapshot(data) {
+  state.agents = data.agents || {};
+  state.cortex  = data.cortex  || {};
+  renderAll();
+  (data.recent_alerts || []).forEach(a => appendAlertRow(a));
+  recalcTotals();
+}
+
+function applyEvent(ev) {
+  if (!state.agents[ev.agent]) { state.agents[ev.agent] = mkAgent(ev.agent); }
+  const ag = state.agents[ev.agent];
+  ag.total_messages++;
+  ag.last_score = ev.score;
+  ag.last_seen  = ev.ts;
+  ag.phase      = ev.phase || ag.phase;
+  ag.is_silent  = false;
+  if (ev.is_anomaly) ag.total_anomalies++;
+
+  if (!sparkData[ev.agent]) sparkData[ev.agent] = [];
+  sparkData[ev.agent].push(ev.score);
+  if (sparkData[ev.agent].length > MAX_SPARK) sparkData[ev.agent].shift();
+
+  updateAgentCard(ev.agent);
+  recalcTotals();
+}
+
+function applyHeartbeat(hb) {
+  if (!state.agents[hb.agent]) state.agents[hb.agent] = mkAgent(hb.agent);
+  const ag = state.agents[hb.agent];
+  ag.phase         = hb.phase || ag.phase;
+  ag.message_rate  = hb.extra?.rate ?? ag.message_rate;
+  ag.error_rate    = hb.extra?.err_rate ?? ag.error_rate;
+  ag.last_seen     = hb.ts;
+  ag.is_silent     = false;
+  updateAgentCard(hb.agent);
+}
+
+function applyAlert(al) {
+  if (!state.cortex[al.source]) state.cortex[al.source] = mkCortex(al.source);
+  state.cortex[al.source].total_alerts++;
+  state.cortex[al.source].last_alert_type = al.alert_type;
+  state.cortex[al.source].last_alert_severity = al.severity;
+  updateCortexCard(al.source);
+  appendAlertRow(al);
+  recalcTotals();
+}
+
+function applySilence(d) {
+  if (state.agents[d.agent]) { state.agents[d.agent].is_silent = true; updateAgentCard(d.agent); }
+}
+
+function applyPhaseChange(d) {
+  if (!state.agents[d.agent]) return;
+  if (d.detector) {
+    const ag = state.agents[d.agent];
+    if (ag.detectors) {
+      const det = ag.detectors.find(det => det.name === d.detector);
+      if (det) det.phase = d.phase;
+    }
+    _renderDetectorRows(d.agent);
+    _updateDetAllBtn(d.agent);
+    // Refresh detector modal if it's open for this detector
+    if (_detModalAgent === d.agent && _detModalDet === d.detector) _renderDetectorModal();
+    // Update aggregate phase badge: INFERENCE only when all detectors are in INFERENCE
+    if (ag.detectors && ag.detectors.length > 0) {
+      const allInference = ag.detectors.every(det => det.phase === 'INFERENCE');
+      ag.phase = allInference ? 'INFERENCE' : 'TRAINING';
+      const phaseBadge = document.getElementById('phase-badge-' + d.agent);
+      if (phaseBadge) { phaseBadge.textContent = ag.phase; phaseBadge.className = 'badge ' + ag.phase; }
+    }
+  } else {
+    const ag = state.agents[d.agent];
+    ag.phase = d.phase;
+    if (ag.detectors) ag.detectors.forEach(det => { det.phase = d.phase; });
+    _renderDetectorRows(d.agent);
+    _updateDetAllBtn(d.agent);
+    updateAgentCard(d.agent);
+  }
+  updateSwitchAllBtn();
+}
+
+function applyAgentChampionUpdate(d) {
+  if (!state.agents[d.name]) return;
+  const ag = state.agents[d.name];
+  ag.champion_fp_rate     = d.champion_fp_rate     ?? ag.champion_fp_rate;
+  ag.challengers_rejected = d.challengers_rejected ?? ag.challengers_rejected;
+  _updateChampionDisplay(d.name, ag);
+}
+
+function _updateChampionDisplay(name, ag) {
+  const fpEl  = document.getElementById('champion-fp-' + name);
+  const rejEl = document.getElementById('champion-rej-' + name);
+  if (fpEl)  fpEl.textContent  = ag.champion_fp_rate < 1.0 ? (ag.champion_fp_rate * 100).toFixed(1) + '%' : '—';
+  if (rejEl) rejEl.textContent = ag.challengers_rejected;
+}
+
+function applyAgentTestUpdate(d) {
+  if (!state.agents[d.name]) return;
+  const ag = state.agents[d.name];
+  ag.test_sample_rate  = d.test_sample_rate  ?? ag.test_sample_rate;
+  ag.test_buffer_count = d.test_buffer_count ?? ag.test_buffer_count;
+  ag.last_test_result  = d.last_test_result  ?? ag.last_test_result;
+  setText('test-buf-' + d.name, ag.test_buffer_count);
+  _applyTestResult(document.getElementById('test-out-' + d.name), ag.last_test_result || {});
+}
+
+function applyDetectorUpdate(d) {
+  const ag = state.agents[d.agent];
+  if (!ag) return;
+  if (!ag.detectors) ag.detectors = [];
+  const idx = ag.detectors.findIndex(det => det.name === d.detector);
+  if (idx >= 0) {
+    ag.detectors[idx] = { ...ag.detectors[idx], ...d };
+  } else {
+    ag.detectors.push(d);
+  }
+  _renderDetectorRows(d.agent);
+  if (activeTestModal && activeTestModal.type === 'agent' && activeTestModal.name === d.agent) {
+    const det = ag.detectors[idx >= 0 ? idx : ag.detectors.length - 1];
+    _refreshTestModalDetector(d.agent, d.detector, det);
+  }
+  if (_detModalAgent === d.agent && _detModalDet === d.detector) _renderDetectorModal();
+}
+
+function _renderDetectorRows(agentName) {
+  const container = document.getElementById('det-section-' + agentName);
+  if (!container) return;
+  const ag = state.agents[agentName];
+  if (!ag) return;
+  container.innerHTML = _detectorRowsInner(agentName, ag.detectors || []);
+}
+
+function applyCortexTestUpdate(d) {
+  if (!state.cortex[d.name]) return;
+  const cx = state.cortex[d.name];
+  cx.test_sample_rate  = d.test_sample_rate  ?? cx.test_sample_rate;
+  cx.test_buffer_count = d.test_buffer_count ?? cx.test_buffer_count;
+  cx.last_test_result  = d.last_test_result  ?? cx.last_test_result;
+  setText('cx-test-buf-' + d.name, cx.test_buffer_count);
+  _applyTestResult(document.getElementById('cx-test-out-' + d.name), cx.last_test_result || {});
+}
+
+function applyCortexUpdate(d) {
+  if (!state.cortex[d.name]) state.cortex[d.name] = mkCortex(d.name);
+  state.cortex[d.name].total_messages = d.total_messages;
+  if (d.training_samples !== undefined) state.cortex[d.name].training_samples = d.training_samples;
+  state.cortex[d.name].phase = d.phase;
+  updateCortexCard(d.name);
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────
+function renderAll() {
+  const agGrid  = document.getElementById('agents-grid');
+  const cxGrid  = document.getElementById('cortex-grid');
+  agGrid.innerHTML = '';
+  cxGrid.innerHTML = '';
+  Object.values(state.agents).forEach(ag => {
+    agGrid.insertAdjacentHTML('beforeend', agentCardHtml(ag));
+  });
+  Object.values(state.cortex).forEach(cx => {
+    cxGrid.insertAdjacentHTML('beforeend', cortexCardHtml(cx));
+  });
+  renderTopo();
+  recalcTotals();
+  updateSwitchAllBtn();
+}
+
+function mkAgent(name) {
+  return { name, phase:'COLD', total_messages:0, total_anomalies:0,
+           last_score:0, last_seen:'', message_rate:0, error_rate:0, is_silent:false,
+           test_sample_rate:0.05, test_buffer_count:0, last_test_result:{},
+           champion_fp_rate:1.0, challengers_rejected:0, detectors:[] };
+}
+function mkCortex(name) {
+  return { name, inputs:[], phase:'TRAINING', total_messages:0, total_alerts:0, training_samples:0,
+           last_alert_type:'', last_alert_severity:'', last_alert_at:'',
+           test_sample_rate:0, test_buffer_count:0, last_test_result:{} };
+}
+
+function agentCardHtml(ag) {
+  const phase = ag.phase || 'COLD';
+  const anomPct  = ag.total_messages > 0 ? (ag.total_anomalies / ag.total_messages * 100).toFixed(1) : '0.0';
+  const scorePct = Math.max(0, Math.min(100, (1 + ag.last_score) * 50));
+  const scoreClr = ag.last_score < -0.1 ? 'var(--red)' : ag.last_score < 0 ? 'var(--yellow)' : 'var(--green)';
+  const lastSeen = ag.last_seen ? relTime(ag.last_seen) : '—';
+  const anomClr  = ag.total_anomalies > 0 ? 'red' : 'green';
+
+  return `
+<div class="card" id="card-${ag.name}">
+  <div class="silent-badge ${ag.is_silent ? 'show' : ''}" id="silent-${ag.name}">SILENT</div>
+  <div class="card-header">
+    <div>
+      <div class="card-name">${ag.name}</div>
+      <div class="card-sub">Last: ${lastSeen}</div>
+    </div>
+    <span class="badge ${phase}" id="phase-badge-${ag.name}">${phase}</span>
+  </div>
+  <div class="agent-stats-row">
+    <b id="msg-${ag.name}">${ag.total_messages}</b> msgs
+    <span class="sep">|</span>
+    <b class="${anomClr}" id="anom-${ag.name}">${ag.total_anomalies}</b> anom
+    (<b id="anomp-${ag.name}">${anomPct}%</b>)
+    <span class="sep">|</span>
+    <b id="rate-${ag.name}">${ag.message_rate}/s</b>
+  </div>
+  <div class="score-row">
+    <div class="gauge-bar">
+      <div class="gauge-fill" id="gauge-${ag.name}" style="width:${scorePct}%;background:${scoreClr}"></div>
+    </div>
+    <span class="score-val" id="score-${ag.name}" style="color:${scoreClr}">${ag.last_score.toFixed(3)}</span>
+  </div>
+  ${detectorsSectionHtml(ag)}
+  <button class="tests-btn" onclick="openTestModal('agent','${ag.name}')">⚗ Tests</button>
+</div>`;
+}
+
+function cortexCardHtml(cx) {
+  const chips = (cx.inputs || []).map(i => `<span class="input-chip">${i}</span>`).join('');
+  const phase  = cx.phase || 'TRAINING';
+  const cxBtnLabel = phase === 'TRAINING' ? '▶ Switch to Inference' : '◀ Switch to Training';
+  const cxBtnClass = phase === 'TRAINING' ? 'to-inference' : 'to-training';
+  return `
+<div class="card cortex-card" id="cx-card-${cx.name}">
+  <div class="card-header">
+    <div>
+      <div class="card-name">${cx.name}</div>
+      <div class="card-sub">${(cx.inputs||[]).length} inputs</div>
+    </div>
+    <span class="badge ${phase}" id="cx-phase-${cx.name}">${phase}</span>
+  </div>
+  <div class="cortex-inputs" id="cx-inputs-${cx.name}">${chips}</div>
+  <div style="display:flex;align-items:baseline;gap:16px;margin-top:8px;margin-bottom:12px">
+    <div><div class="stat-val" id="cx-msgs-${cx.name}">${cx.total_messages ?? 0}</div><div class="stat-lbl">Messages</div></div>
+    <div><div class="cortex-alerts" id="cx-alerts-${cx.name}">${cx.total_alerts}</div><div class="stat-lbl">Total Alerts</div></div>
+    <div><div class="stat-val" style="color:var(--muted)" id="cx-train-${cx.name}">${cx.training_samples ?? 0}</div><div class="stat-lbl">Training Samples</div></div>
+  </div>
+  <button class="phase-btn ${cxBtnClass}" id="cxbtn-${cx.name}" onclick="changeCortexPhase('${cx.name}', '${phase === 'TRAINING' ? 'INFERENCE' : 'TRAINING'}')">${cxBtnLabel}</button>
+  <button class="tests-btn" onclick="openTestModal('cortex','${cx.name}')">⚗ Tests</button>
+</div>`;
+}
+
+function updateAgentCard(name) {
+  const ag = state.agents[name];
+  if (!ag) return;
+
+  const card = document.getElementById('card-' + name);
+  if (!card) { renderAll(); return; }
+
+  const phase = ag.phase || 'COLD';
+  const anomPct = ag.total_messages > 0 ? (ag.total_anomalies / ag.total_messages * 100).toFixed(1) : '0.0';
+  const scorePct = Math.max(0, Math.min(100, (1 + ag.last_score) * 50));
+  const scoreClr = ag.last_score < -0.1 ? 'var(--red)' : ag.last_score < 0 ? 'var(--yellow)' : 'var(--green)';
+
+  setText('msg-' + name, ag.total_messages);
+  setText('anom-' + name, ag.total_anomalies);
+  setText('anomp-' + name, anomPct + '%');
+  const anomEl = document.getElementById('anom-' + name);
+  if (anomEl) anomEl.className = ag.total_anomalies > 0 ? 'red' : 'green';
+
+  const gauge = document.getElementById('gauge-' + name);
+  if (gauge) { gauge.style.width = scorePct + '%'; gauge.style.background = scoreClr; }
+  const scoreEl = document.getElementById('score-' + name);
+  if (scoreEl) { scoreEl.textContent = ag.last_score.toFixed(3); scoreEl.style.color = scoreClr; }
+
+  const phaseBadge = document.getElementById('phase-badge-' + name);
+  if (phaseBadge) { phaseBadge.textContent = phase; phaseBadge.className = 'badge ' + phase; }
+
+  const silent = document.getElementById('silent-' + name);
+  if (silent) silent.className = 'silent-badge' + (ag.is_silent ? ' show' : '');
+
+  setText('rate-' + name, ag.message_rate + '/s');
+
+  // Flash on anomaly
+  if (ag.total_anomalies > 0 && ag.last_score < -0.1) {
+    card.classList.add('anomaly-flash');
+    setTimeout(() => card.classList.remove('anomaly-flash'), 700);
+  }
+}
+
+function algoChipClass(algorithm) {
+  if (!algorithm) return 'IF';
+  const a = algorithm.toLowerCase();
+  if (a === 'isolation_forest') return 'IF';
+  if (a === 'cvae') return 'cVAE';
+  if (a === 'maf')  return 'MAF';
+  return 'NRI';
+}
+
+function algoLabel(algorithm) {
+  const map = { isolation_forest: 'IF', cvae: 'cVAE', maf: 'MAF', nri: 'NRI' };
+  return map[algorithm] || (algorithm || '?').toUpperCase();
+}
+
+function _detectorRowsInner(agentName, detectors) {
+  if (!detectors || detectors.length === 0) return '';
+  return detectors.map(det => {
+    const phase     = det.phase || 'COLD';
+    const chipCls   = algoChipClass(det.algorithm);
+    const label     = algoLabel(det.algorithm);
+    const fp        = (det.champion_fp_rate ?? 1.0) < 1.0 ? (det.champion_fp_rate * 100).toFixed(1) + '%' : '—';
+    const fpColor   = (det.champion_fp_rate ?? 1.0) < 1.0 ? 'var(--green)' : 'var(--muted)';
+    const aitOn     = det.auto_infer_fp_threshold != null;
+    const aitPct    = aitOn ? Math.round(det.auto_infer_fp_threshold * 100) : 5;
+    const aitLabel  = aitOn ? `AIT <b style="color:var(--inference)">${aitPct}%</b>` : `AIT`;
+    const aitColor  = aitOn ? 'var(--inference)' : 'var(--muted)';
+    return `<div class="det-row" id="det-row-${agentName}-${det.name}" onclick="openDetectorModal('${agentName}','${det.name}')">
+      <span class="det-dot ${phase}"></span>
+      <div class="det-name">${det.name}</div>
+      <span class="algo-chip ${chipCls}">${label}</span>
+      <span class="det-fp" style="color:var(--muted)">FP <b style="color:${fpColor}">${fp}</b></span>
+      <label class="ait-label" style="color:${aitColor};cursor:pointer" onclick="event.stopPropagation()" title="Auto-Infer Threshold">
+        <input type="checkbox" id="ait-chk-${agentName}-${det.name}" ${aitOn ? 'checked' : ''} style="margin-right:3px;cursor:pointer"
+          onchange="toggleAutoInfer('${agentName}','${det.name}',this.checked,${aitPct})">
+        ${aitLabel}
+      </label>
+    </div>`;
+  }).join('');
+}
+
+function detectorsSectionHtml(ag) {
+  if (!ag.detectors || ag.detectors.length === 0) return '';
+  const allInference = ag.detectors.every(d => (d.phase || 'COLD') === 'INFERENCE');
+  const allBtnPhase = allInference ? 'TRAINING' : 'INFERENCE';
+  const allBtnLabel = allInference ? '◀ All Train' : '▶ All Infer';
+  const allBtnCls = allInference ? 'to-training' : '';
+  return `<div class="detectors-section">
+    <div class="detectors-header" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Detectors</span>
+      <button class="det-all-btn ${allBtnCls}" id="det-all-btn-${ag.name}" onclick="changePhase('${ag.name}','${allBtnPhase}')">${allBtnLabel}</button>
+    </div>
+    <div id="det-section-${ag.name}">${_detectorRowsInner(ag.name, ag.detectors)}</div>
+  </div>`;
+}
+
+
+function _updateDetAllBtn(agentName) {
+  const ag  = state.agents[agentName];
+  const btn = document.getElementById('det-all-btn-' + agentName);
+  if (!ag || !btn) return;
+  const allInference = ag.detectors && ag.detectors.every(d => (d.phase || 'COLD') === 'INFERENCE');
+  const toPhase = allInference ? 'TRAINING' : 'INFERENCE';
+  btn.textContent = allInference ? '◀ All Train' : '▶ All Infer';
+  btn.className   = 'det-all-btn' + (allInference ? ' to-training' : '');
+  btn.onclick     = () => changePhase(agentName, toPhase);
+}
+
+function _testOutputHtml(res) {
+  if (!res || Object.keys(res).length === 0) return '';
+  if (res.error) return `<span style="color:var(--red)">${res.error}</span>`;
+  const failRate = res.samples_run > 0 ? (res.failed / res.samples_run * 100).toFixed(1) : '0.0';
+  return `${res.samples_run} samples · <b style="color:${res.failed > 0 ? 'var(--red)' : 'var(--green)'}">${res.failed} failed</b> (${failRate}%)`;
+}
+
+function _applyTestResult(outEl, res) {
+  if (!outEl) return;
+  outEl.innerHTML = _testOutputHtml(res) || '—';
+  outEl.className = 'test-output' + (res.error ? ' err' : res.failed > 0 ? ' warn' : ' ok');
+}
+
+function updateCortexCard(name) {
+  const cx = state.cortex[name];
+  if (!cx) return;
+  const card = document.getElementById('cx-card-' + name);
+  if (!card) { renderAll(); return; }
+  const phase = cx.phase || 'TRAINING';
+  setText('cx-alerts-' + name, cx.total_alerts);
+  setText('cx-msgs-' + name, cx.total_messages ?? 0);
+  setText('cx-train-' + name, cx.training_samples ?? 0);
+  const phaseEl = document.getElementById('cx-phase-' + name);
+  if (phaseEl) { phaseEl.textContent = phase; phaseEl.className = 'badge ' + phase; }
+  const cxbtn = document.getElementById('cxbtn-' + name);
+  if (cxbtn) {
+    const toPhase = phase === 'TRAINING' ? 'INFERENCE' : 'TRAINING';
+    cxbtn.textContent = phase === 'TRAINING' ? '▶ Switch to Inference' : '◀ Switch to Training';
+    cxbtn.className = 'phase-btn ' + (phase === 'TRAINING' ? 'to-inference' : 'to-training');
+    cxbtn.onclick = () => changeCortexPhase(name, toPhase);
+  }
+}
+
+// ── Sparkline ──────────────────────────────────────────────────────────
+function drawSpark(name) {
+  const canvas = document.getElementById('spark-' + name);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const data = sparkData[name] || [];
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  if (data.length < 2) return;
+
+  const min = -1, max = 0.5;
+  const threshold = -0.1;
+  const thY = H - ((threshold - min) / (max - min)) * H;
+
+  // Threshold line
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(239,68,68,0.3)';
+  ctx.setLineDash([4, 4]);
+  ctx.moveTo(0, thY);
+  ctx.lineTo(W, thY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Score line
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - ((v - min) / (max - min)) * H;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Fill under
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - ((v - min) / (max - min)) * H;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(56,189,248,0.2)');
+  grad.addColorStop(1, 'rgba(56,189,248,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+}
+
+// ── Event log ──────────────────────────────────────────────────────────
+function appendEventLog(ev, dimHb, alertData) {
+  const log = document.getElementById('event-log');
+  if (!log) return;
+  const isAnomaly  = ev.is_anomaly;
+  const isHb       = ev.kind === 'heartbeat';
+  const isAlert    = ev.kind === 'alert';
+  const isSilence  = ev.kind === 'silence';
+  const rowClass   = isAlert ? 'alert' : isSilence ? 'silence' : isAnomaly ? 'anomaly' : isHb ? 'heartbeat' : '';
+
+  let badge, body;
+  if (isAlert && alertData) {
+    badge = `<span class="ev-badge ALERT">${alertData.alert_type}</span>`;
+    body  = `<span class="ev-body">${alertData.description?.slice(0,60) || ''}</span>`;
+  } else if (isSilence) {
+    badge = `<span class="ev-badge SILENT">SILENT</span>`;
+    body  = `<span class="ev-body">No heartbeat detected</span>`;
+  } else if (isHb) {
+    badge = `<span class="ev-badge HB">HB</span>`;
+    body  = `<span class="ev-body">rate ${ev.extra?.rate ?? 0}/s  err ${((ev.extra?.err_rate ?? 0)*100).toFixed(1)}%</span>`;
+  } else if (isAnomaly) {
+    badge = `<span class="ev-badge ANOMALY">${ev.anomaly_type || 'ANOMALY'}</span>`;
+    body  = `<span class="ev-body">score ${ev.score?.toFixed(3)} · ${ev.latency_ms?.toFixed(0)}ms</span>`;
+  } else {
+    badge = `<span class="ev-badge OK">OK</span>`;
+    body  = `<span class="ev-body">score ${ev.score?.toFixed(3)} · ${ev.latency_ms?.toFixed(0)}ms</span>`;
+  }
+
+  const row = document.createElement('div');
+  row.className = `event-row ${rowClass}`;
+  row.innerHTML = `
+    <div><div class="ev-time">${fmtTime(ev.ts)}</div></div>
+    <div><div class="ev-agent">${ev.agent}</div>${body}</div>
+    <div>${badge}</div>`;
+
+  if (isAnomaly && ev.correlation_id) {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => openEventDetail(ev));
+  }
+
+  log.prepend(row);
+  while (log.children.length > MAX_LOG) log.removeChild(log.lastChild);
+}
+
+// ── Event detail modal ─────────────────────────────────────────────────
+function closeModal() {
+  document.getElementById('event-modal').classList.remove('open');
+}
+
+function closeModalOnOverlay(e) {
+  if (e.target === document.getElementById('event-modal')) closeModal();
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeTestModal(); } });
+
+async function openEventDetail(ev) {
+  const modal = document.getElementById('event-modal');
+  const body  = document.getElementById('modal-body');
+  const title = document.getElementById('modal-title');
+
+  const anomalyColor = ev.anomaly_type === 'TIMEOUT' ? 'var(--yellow)' : 'var(--red)';
+  title.innerHTML = `<span style="color:${anomalyColor}">${ev.anomaly_type || 'ANOMALY'}</span> — ${ev.agent}`;
+  body.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px">Loading payloads…</div>';
+  modal.classList.add('open');
+
+  const metaHtml = `
+    <div class="detail-grid">
+      <div class="detail-cell"><div class="detail-cell-lbl">Agent</div><div class="detail-cell-val">${ev.agent}</div></div>
+      <div class="detail-cell"><div class="detail-cell-lbl">Anomaly Type</div><div class="detail-cell-val" style="color:${anomalyColor}">${ev.anomaly_type || '—'}</div></div>
+      <div class="detail-cell"><div class="detail-cell-lbl">Score</div><div class="detail-cell-val" style="color:var(--red)">${ev.score?.toFixed(4) ?? '—'}</div></div>
+      <div class="detail-cell"><div class="detail-cell-lbl">Latency</div><div class="detail-cell-val">${ev.latency_ms?.toFixed(2) ?? '—'} ms</div></div>
+      <div class="detail-cell"><div class="detail-cell-lbl">Input Received</div><div class="detail-cell-val">${ev.input_received_at ? fmtTime(ev.input_received_at) : '—'}</div></div>
+      <div class="detail-cell"><div class="detail-cell-lbl">Output Sent</div><div class="detail-cell-val">${fmtTime(ev.ts)}</div></div>
+      <div class="detail-cell"><div class="detail-cell-lbl">Input Size</div><div class="detail-cell-val">${ev.input_size_bytes ?? 0} B</div></div>
+      <div class="detail-cell"><div class="detail-cell-lbl">Output Size</div><div class="detail-cell-val">${ev.output_size_bytes ?? 0} B</div></div>
+      <div class="detail-cell" style="grid-column:1/-1"><div class="detail-cell-lbl">Correlation ID</div><div class="detail-cell-val">${ev.correlation_id}</div></div>
+      <div class="detail-cell" style="grid-column:1/-1"><div class="detail-cell-lbl">Schema Hash</div><div class="detail-cell-val">${ev.payload_schema_hash || '—'}</div></div>
+    </div>`;
+
+  let payloadHtml = '';
+  try {
+    const res = await fetch(`/api/events/${encodeURIComponent(ev.correlation_id)}/payload`);
+    if (res.ok) {
+      const data = await res.json();
+      const fmtPayload = obj => obj ? JSON.stringify(obj, null, 2) : null;
+      const inputStr  = fmtPayload(data.input);
+      const outputStr = fmtPayload(data.output);
+      payloadHtml = `
+        <div class="payload-section">
+          <div class="payload-title">Input Payload</div>
+          ${inputStr
+            ? `<div class="payload-box">${escHtml(inputStr)}</div>`
+            : `<div class="payload-box missing">Not available${ev.anomaly_type === 'TIMEOUT' ? ' — input never arrived' : ''}</div>`}
+        </div>
+        <div class="payload-section">
+          <div class="payload-title">Output Payload</div>
+          ${outputStr
+            ? `<div class="payload-box">${escHtml(outputStr)}</div>`
+            : `<div class="payload-box missing">Not available</div>`}
+        </div>`;
+    } else {
+      payloadHtml = `<div class="payload-section"><div class="payload-box missing">Payload expired or not stored</div></div>`;
+    }
+  } catch {
+    payloadHtml = `<div class="payload-section"><div class="payload-box missing">Failed to load payload</div></div>`;
+  }
+
+  body.innerHTML = metaHtml + payloadHtml;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function appendAlertRow(al) {
+  const tb = document.getElementById('alert-tbody');
+  if (!tb) return;
+  const row = document.createElement('tr');
+  const sevColor = al.severity === 'CRITICAL' ? 'var(--red)' : al.severity === 'WARNING' ? 'var(--yellow)' : 'var(--accent)';
+  const hasDetail = !!al.alert_id;
+  if (hasDetail) row.style.cursor = 'pointer';
+  row.innerHTML = `
+    <td style="white-space:nowrap;color:var(--muted)">${fmtTime(al.ts)}</td>
+    <td style="font-weight:700">${al.source}</td>
+    <td><span class="sev-dot ${al.severity}"></span><span style="color:${sevColor}">${al.severity}</span></td>
+    <td>${al.alert_type}</td>
+    <td style="color:var(--muted)">${al.description?.slice(0,80) || ''}${hasDetail ? ' <span style="color:var(--accent);font-size:10px">▶ detail</span>' : ''}</td>`;
+  if (hasDetail) row.addEventListener('click', () => openAlertDetail(al));
+  tb.prepend(row);
+  while (tb.children.length > 100) tb.removeChild(tb.lastChild);
+}
+
+async function openAlertDetail(al) {
+  const modal = document.getElementById('event-modal');
+  const body  = document.getElementById('modal-body');
+  const title = document.getElementById('modal-title');
+
+  const sevColor = al.severity === 'CRITICAL' ? 'var(--red)' : al.severity === 'WARNING' ? 'var(--yellow)' : 'var(--accent)';
+  title.textContent = `Alert — ${al.source}`;
+  body.innerHTML = `<div style="color:var(--muted);font-size:12px">Loading diagnosis…</div>`;
+  modal.classList.add('open');
+
+  // Metadata grid
+  const metaHtml = `
+    <div class="detail-grid">
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">TIME</div><div>${new Date(al.ts).toLocaleString()}</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">SOURCE</div><div style="font-weight:700">${al.source}</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">SEVERITY</div><div style="color:${sevColor};font-weight:700">${al.severity}</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">TYPE</div><div>${al.alert_type}</div></div>
+      <div class="detail-cell" style="grid-column:1/-1"><div style="color:var(--muted);font-size:10px">DESCRIPTION</div><div>${escHtml(al.description || '')}</div></div>
+      <div class="detail-cell" style="grid-column:1/-1"><div style="color:var(--muted);font-size:10px">AFFECTED AGENTS</div><div>${(al.affected || []).join(', ') || '—'}</div></div>
+    </div>`;
+
+  let diagHtml = '';
+  try {
+    const encodedId = encodeURIComponent(al.alert_id);
+    const res = await fetch(`/api/alerts/${encodedId}/payload`);
+    if (res.ok) {
+      const payload = await res.json();
+      const diag = payload.diagnosis || {};
+
+      if (diag.causal) {
+        diagHtml += `<div class="payload-section">CAUSAL CHAIN</div>
+          <div class="detail-grid">
+            <div class="detail-cell"><div style="color:var(--muted);font-size:10px">ROOT AGENT</div><div style="color:var(--red);font-weight:700">${diag.causal.root_agent || '—'}</div></div>
+            <div class="detail-cell"><div style="color:var(--muted);font-size:10px">CONFIDENCE</div><div>${((diag.causal.confidence || 0) * 100).toFixed(1)}%</div></div>
+            <div class="detail-cell" style="grid-column:1/-1"><div style="color:var(--muted);font-size:10px">SEQUENCE</div><div>${(diag.causal.sequence || []).join(' → ') || '—'}</div></div>
+          </div>`;
+      }
+
+      if (diag.systemic_error !== undefined) {
+        diagHtml += `<div class="payload-section">SYSTEMIC ANALYSIS</div>
+          <div class="detail-grid">
+            <div class="detail-cell"><div style="color:var(--muted);font-size:10px">RECONSTRUCTION ERROR</div><div style="color:var(--red);font-weight:700">${Number(diag.systemic_error).toFixed(6)}</div></div>
+          </div>`;
+      }
+
+      diagHtml += `<div class="payload-section">FULL DIAGNOSIS</div>
+        <div class="payload-box">${escHtml(JSON.stringify(payload, null, 2))}</div>`;
+    } else {
+      diagHtml = `<div style="color:var(--muted);font-size:12px;padding:8px">No detailed diagnosis stored for this alert.</div>`;
+    }
+  } catch (e) {
+    diagHtml = `<div style="color:var(--muted);font-size:12px;padding:8px">Failed to load diagnosis.</div>`;
+  }
+
+  body.innerHTML = metaHtml + diagHtml;
+}
+
+// ── Test modal ─────────────────────────────────────────────────────────
+let activeTestModal = null;
+
+function openTestModal(type, name) {
+  activeTestModal = { type, name };
+  document.getElementById('test-modal-title').textContent = `Tests — ${name}`;
+  document.getElementById('test-modal-body').innerHTML = _testModalBodyHtml(type, name);
+  document.getElementById('test-modal').classList.add('open');
+  if (type === 'agent') _drawModalSpark(name);
+}
+
+function closeTestModal() {
+  document.getElementById('test-modal').classList.remove('open');
+  activeTestModal = null;
+}
+
+function closeTestModalOnOverlay(e) {
+  if (e.target === document.getElementById('test-modal')) closeTestModal();
+}
+
+function _testModalBodyHtml(type, name) {
+  if (type === 'agent') {
+    const ag = state.agents[name];
+    if (!ag) return '';
+    const detectors = ag.detectors || [];
+
+    let detHtml = '';
+    detectors.forEach(det => {
+      const rate      = Math.round((det.test_sample_rate || 0) * 100);
+      const buf       = det.test_buffer_count || 0;
+      const outHtml   = _testOutputHtml(det.last_test_result || {});
+      const fpRate    = (det.champion_fp_rate ?? 1.0) < 1.0 ? (det.champion_fp_rate * 100).toFixed(1) + '%' : '—';
+      const rej       = det.challengers_rejected || 0;
+      const chipCls   = algoChipClass(det.algorithm);
+      const chipLbl   = algoLabel(det.algorithm);
+      detHtml += `
+        <div class="tdet-row" id="tdet-row-${name}-${det.name}">
+          <div class="tdet-header">
+            <span class="tdet-name">${det.name}</span>
+            <span class="algo-chip ${chipCls}">${chipLbl}</span>
+          </div>
+          <div class="test-rate-row">
+            <label>Rate:</label>
+            <input type="number" id="tdet-rate-${name}-${det.name}" min="0" max="100" value="${rate}" />
+            <label>%</label>
+            <button class="test-save-btn" onclick="setDetectorTestRate('${name}','${det.name}')">Save</button>
+            <span style="margin-left:6px;font-size:11px;color:var(--muted)">Buffer: <b id="tdet-buf-${name}-${det.name}" style="color:var(--text)">${buf}</b></span>
+          </div>
+          <button class="test-run-btn" id="tdet-run-${name}-${det.name}" onclick="runDetectorTest('${name}','${det.name}')">▶ Run Test</button>
+          <div class="test-output" id="tdet-out-${name}-${det.name}">${outHtml || '—'}</div>
+          <div style="display:flex;gap:16px;font-size:11px;color:var(--muted)">
+            <span>Champion FP: <b id="tdet-fp-${name}-${det.name}" style="color:var(--green)">${fpRate}</b></span>
+            <span>Rejected: <b id="tdet-rej-${name}-${det.name}" style="color:var(--text)">${rej}</b></span>
+          </div>
+        </div>`;
+    });
+
+    return `
+      <div style="margin-bottom:14px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Score history (last ${MAX_SPARK} events)</div>
+        <canvas id="modal-spark-${name}" width="420" height="48" style="width:100%;height:48px;display:block"></canvas>
+      </div>
+      ${detHtml}`;
+  } else {
+    const cx = state.cortex[name];
+    if (!cx) return '';
+    const rate = Math.round((cx.test_sample_rate || 0) * 100);
+    const buf  = cx.test_buffer_count || 0;
+    const outputHtml = _testOutputHtml(cx.last_test_result || {});
+    return `
+      <div class="test-rate-row">
+        <label>Sample rate:</label>
+        <input type="number" id="cx-test-rate-input-${name}" min="0" max="100" value="${rate}" />
+        <label>%</label>
+        <button class="test-save-btn" onclick="setCortexTestRate('${name}')">Save</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">Buffer: <b id="cx-test-buf-${name}" style="color:var(--text)">${buf}</b> samples</div>
+      <button class="test-run-btn" id="cx-test-run-${name}" onclick="runCortexTest('${name}')">▶ Run Test</button>
+      <div class="test-output" id="cx-test-out-${name}">${outputHtml || '—'}</div>`;
+  }
+}
+
+function _drawModalSpark(name) {
+  const canvas = document.getElementById('modal-spark-' + name);
+  if (!canvas) return;
+  const ctx  = canvas.getContext('2d');
+  const data = sparkData[name] || [];
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  if (data.length < 2) return;
+  const min = -1, max = 0.5, threshold = -0.1;
+  const thY = H - ((threshold - min) / (max - min)) * H;
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(239,68,68,0.3)';
+  ctx.setLineDash([4, 4]);
+  ctx.moveTo(0, thY); ctx.lineTo(W, thY);
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - ((v - min) / (max - min)) * H;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - ((v - min) / (max - min)) * H;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(56,189,248,0.2)');
+  grad.addColorStop(1, 'rgba(56,189,248,0)');
+  ctx.fillStyle = grad; ctx.fill();
+}
+
+// ── Agent test controls ────────────────────────────────────────────────
+async function setAgentTestRate(agentName) {
+  const input = document.getElementById('test-rate-input-' + agentName);
+  if (!input) return;
+  const rate = parseFloat(input.value) || 0;
+  await fetch(`/api/agents/${encodeURIComponent(agentName)}/test-rate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rate }),
+  });
+}
+
+async function runAgentTest(agentName) {
+  const btn = document.getElementById('test-run-' + agentName);
+  const out = document.getElementById('test-out-' + agentName);
+  if (btn) btn.disabled = true;
+  if (out) { out.className = 'test-output'; out.textContent = 'Running…'; }
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(agentName)}/run-test`, { method: 'POST' });
+    const data = await res.json();
+    if (state.agents[agentName]) state.agents[agentName].last_test_result = data;
+    _applyTestResult(out, data);
+  } catch (e) {
+    if (out) { out.className = 'test-output err'; out.textContent = e.message; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function setDetectorTestRate(agentName, detectorName) {
+  const input = document.getElementById(`tdet-rate-${agentName}-${detectorName}`);
+  if (!input) return;
+  const rate = parseFloat(input.value) || 0;
+  await fetch(`/api/agents/${encodeURIComponent(agentName)}/detectors/${encodeURIComponent(detectorName)}/test-rate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rate }),
+  });
+}
+
+async function runDetectorTest(agentName, detectorName) {
+  const btn = document.getElementById(`tdet-run-${agentName}-${detectorName}`);
+  const out = document.getElementById(`tdet-out-${agentName}-${detectorName}`);
+  if (btn) btn.disabled = true;
+  if (out) { out.className = 'test-output'; out.textContent = 'Running…'; }
+  try {
+    const res = await fetch(
+      `/api/agents/${encodeURIComponent(agentName)}/detectors/${encodeURIComponent(detectorName)}/run-test`,
+      { method: 'POST' }
+    );
+    const data = await res.json();
+    _applyTestResult(out, data);
+    const ag = state.agents[agentName];
+    if (ag && ag.detectors) {
+      const det = ag.detectors.find(d => d.name === detectorName);
+      if (det) det.last_test_result = data;
+    }
+  } catch (e) {
+    if (out) { out.className = 'test-output err'; out.textContent = e.message; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _refreshTestModalDetector(agentName, detectorName, det) {
+  const bufEl = document.getElementById(`tdet-buf-${agentName}-${detectorName}`);
+  if (bufEl && det.test_buffer_count !== undefined) bufEl.textContent = det.test_buffer_count;
+  const outEl = document.getElementById(`tdet-out-${agentName}-${detectorName}`);
+  if (outEl && det.last_test_result && Object.keys(det.last_test_result).length > 0) {
+    _applyTestResult(outEl, det.last_test_result);
+  }
+  const fpEl = document.getElementById(`tdet-fp-${agentName}-${detectorName}`);
+  if (fpEl && det.champion_fp_rate !== undefined) {
+    fpEl.textContent = det.champion_fp_rate < 1.0 ? (det.champion_fp_rate * 100).toFixed(1) + '%' : '—';
+  }
+  const rejEl = document.getElementById(`tdet-rej-${agentName}-${detectorName}`);
+  if (rejEl && det.challengers_rejected !== undefined) rejEl.textContent = det.challengers_rejected;
+}
+
+// ── Cortex phase + test controls ───────────────────────────────────────
+async function changeCortexPhase(cortexName, newPhase) {
+  const btn = document.getElementById('cxbtn-' + cortexName);
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`/api/cortex/${encodeURIComponent(cortexName)}/phase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phase: newPhase }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Error: ${err.error}`);
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function setCortexTestRate(cortexName) {
+  const input = document.getElementById('cx-test-rate-input-' + cortexName);
+  if (!input) return;
+  const rate = parseFloat(input.value) || 0;
+  await fetch(`/api/cortex/${encodeURIComponent(cortexName)}/test-rate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rate }),
+  });
+}
+
+async function runCortexTest(cortexName) {
+  const btn = document.getElementById('cx-test-run-' + cortexName);
+  const out = document.getElementById('cx-test-out-' + cortexName);
+  if (btn) btn.disabled = true;
+  if (out) { out.className = 'test-output'; out.textContent = 'Running…'; }
+  try {
+    const res = await fetch(`/api/cortex/${encodeURIComponent(cortexName)}/run-test`, { method: 'POST' });
+    const data = await res.json();
+    if (state.cortex[cortexName]) state.cortex[cortexName].last_test_result = data;
+    _applyTestResult(out, data);
+  } catch (e) {
+    if (out) { out.className = 'test-output err'; out.textContent = e.message; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Phase change ───────────────────────────────────────────────────────
+async function switchAllAgents() {
+  const agents = Object.values(state.agents);
+  if (agents.length === 0) return;
+  const allInference = agents.every(a => (a.phase || 'COLD') === 'INFERENCE');
+  const targetPhase = allInference ? 'TRAINING' : 'INFERENCE';
+  await Promise.all(agents.map(a => changePhase(a.name, targetPhase)));
+  updateSwitchAllBtn();
+}
+
+function updateSwitchAllBtn() {
+  const btn = document.getElementById('btn-switch-all');
+  if (!btn) return;
+  const agents = Object.values(state.agents);
+  const allInference = agents.length > 0 && agents.every(a => (a.phase || 'COLD') === 'INFERENCE');
+  btn.textContent = allInference ? '◀ All to Training' : '▶ All to Inference';
+}
+
+async function changePhase(agentName, newPhase) {
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(agentName)}/phase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phase: newPhase }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Error: ${err.error}`);
+    }
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+  }
+}
+
+async function changeDetectorPhase(agentName, detectorName, newPhase, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(
+      `/api/agents/${encodeURIComponent(agentName)}/detectors/${encodeURIComponent(detectorName)}/phase`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase: newPhase }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Error: ${err.error}`);
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function toggleAutoInfer(agentName, detectorName, enabled, currentPct) {
+  await fetch(
+    `/api/agents/${encodeURIComponent(agentName)}/detectors/${encodeURIComponent(detectorName)}/auto-infer`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, threshold: currentPct / 100 }),
+    }
+  );
+}
+
+function onAitModalToggle(checked) {
+  // Visually enable/disable the threshold input
+  const inp = document.getElementById('ait-modal-pct');
+  if (inp) inp.disabled = !checked;
+}
+
+async function saveAitModal() {
+  if (!_detModalAgent || !_detModalDet) return;
+  const chk = document.getElementById('ait-modal-chk');
+  const inp = document.getElementById('ait-modal-pct');
+  if (!chk || !inp) return;
+  const enabled = chk.checked;
+  const pct = parseFloat(inp.value) || 5;
+  await fetch(
+    `/api/agents/${encodeURIComponent(_detModalAgent)}/detectors/${encodeURIComponent(_detModalDet)}/auto-infer`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, threshold: pct / 100 }),
+    }
+  );
+}
+
+// ── Topology ───────────────────────────────────────────────────────────
+function queueName(resource) {
+  if (!resource) return '?';
+  // Extract last path segment from a URL (e.g. http://host/000/my-queue → my-queue)
+  return resource.split('/').filter(Boolean).pop() || resource;
+}
+
+function renderTopo() {
+  const box = document.getElementById('topo-box');
+
+  if (!sentinelConfig || !(sentinelConfig.agents || []).length) {
+    const names = Object.keys(state.agents);
+    box.textContent = names.length === 0 ? 'No agents registered yet.' : 'Agents: ' + names.join(', ');
+    return;
+  }
+
+  const agents = sentinelConfig.agents || [];
+  const cortex  = sentinelConfig.cortex  || [];
+
+  // Build port → cortex name map for resolving agent.cortex and cortex.parent_cortex
+  const portToCortex = {};
+  cortex.forEach(cx => { portToCortex[cx.grpc_port] = cx.name; });
+
+  const lines = [];
+
+  lines.push('Agents');
+  agents.forEach(ag => {
+    const inQ  = queueName(ag.input?.resource);
+    const outQ = queueName(ag.output?.resource);
+    const mode = ag.correlation_mode && ag.correlation_mode !== 'normal' ? ` [${ag.correlation_mode}]` : '';
+    const targets = (ag.cortex || [])
+      .map(ref => portToCortex[ref.port] || `port:${ref.port}`)
+      .map(n => `<span class="hl">${n}</span>`)
+      .join(', ');
+    const arrow = targets ? `  ──► ${targets}` : '';
+    lines.push(`  <span class="hl">${ag.name}</span>  ${inQ} ──► ${outQ}${mode}${arrow}`);
+  });
+
+  if (cortex.length > 0) {
+    lines.push('');
+    lines.push('Cortex');
+    cortex.forEach(cx => {
+      const ins = (cx.inputs || []).map(i => `<span class="hl">${i}</span>`).join(', ');
+      const parents = (cx.parent_cortex || [])
+        .map(ref => portToCortex[ref.port] || `port:${ref.port}`)
+        .map(n => `<span class="hl">${n}</span>`)
+        .join(', ');
+      const parentArrow = parents ? `  ──► ${parents}` : '';
+      lines.push(`  <span class="hl">${cx.name}</span>  ← ${ins}${parentArrow}`);
+    });
+  }
+
+  box.innerHTML = lines.join('\n');
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────
+function recalcTotals() {
+  const totalAnom = Object.values(state.agents).reduce((s, a) => s + (a.total_anomalies || 0), 0);
+  const totalAlerts = Object.values(state.cortex).reduce((s, c) => s + (c.total_alerts || 0), 0);
+  setText('h-agents', Object.keys(state.agents).length);
+  setText('h-cortex', Object.keys(state.cortex).length);
+  setText('h-anomalies', totalAnom);
+  setText('h-alerts', totalAlerts);
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toTimeString().slice(0, 8);
+}
+
+function relTime(iso) {
+  const diff = (Date.now() - new Date(iso)) / 1000;
+  if (diff < 5)   return 'just now';
+  if (diff < 60)  return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff/60)}m ago`;
+  return `${Math.round(diff/3600)}h ago`;
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+async function peekEvents() {
+  const log = document.getElementById('event-log');
+  const hint = document.getElementById('peek-hint');
+  if (!log) return;
+  try {
+    const res = await fetch('/api/events/buffer');
+    const data = await res.json();
+    log.innerHTML = '';
+    if (hint) hint.style.display = 'none';
+    const events = (data.events || []).filter(e => e.kind !== 'heartbeat');
+    if (events.length === 0) {
+      log.innerHTML = '<div style="color:var(--muted);padding:12px;text-align:center">Buffer empty</div>';
+      return;
+    }
+    events.slice().reverse().forEach(e => appendEventLog(e));
+  } catch (err) {
+    log.innerHTML = `<div style="color:var(--red);padding:12px">Error: ${err.message}</div>`;
+  }
+}
+
+async function peekErrors() {
+  const log = document.getElementById('event-log');
+  const hint = document.getElementById('peek-hint');
+  if (!log) return;
+  // Switch to events tab
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('.tab').classList.add('active');
+  document.getElementById('tab-events').classList.add('active');
+  try {
+    const res = await fetch('/api/errors/buffer');
+    const data = await res.json();
+    log.innerHTML = '';
+    if (hint) hint.style.display = 'none';
+    const errors = data.events || [];
+    if (errors.length === 0) {
+      log.innerHTML = '<div style="color:var(--muted);padding:12px;text-align:center">No errors in buffer</div>';
+      return;
+    }
+    errors.slice().reverse().forEach(e => appendEventLog(e));
+  } catch (err) {
+    log.innerHTML = `<div style="color:var(--red);padding:12px">Error: ${err.message}</div>`;
+  }
+}
+
+// ── Model Management ───────────────────────────────────────────────────
+
+function modelStatus(msg, type) {
+  const el = document.getElementById('model-status');
+  el.textContent = msg;
+  el.className = 'model-status show ' + type;
+  if (type !== 'info') setTimeout(() => el.classList.remove('show'), 6000);
+}
+
+function modelsBusy(busy) {
+  ['btn-export', 'btn-clear'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy;
+  });
+  const lbl = document.getElementById('btn-import-label');
+  if (lbl) lbl.style.pointerEvents = busy ? 'none' : '';
+}
+
+function opsBusy(busy) {
+  ['btn-purge-queues', 'btn-purge-redis'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy;
+  });
+}
+
+function opsStatus(msg, type) {
+  const el = document.getElementById('ops-status');
+  el.textContent = msg;
+  el.className = 'model-status show ' + type;
+  if (type !== 'info') setTimeout(() => el.classList.remove('show'), 6000);
+}
+
+async function redisPurge() {
+  if (!confirm('Purge all Sentinel correlation keys from Redis?\n\nThis clears in-flight correlations. In-flight messages will be treated as timeouts.')) return;
+  opsBusy(true);
+  opsStatus('Purging Redis…', 'info');
+  try {
+    const res = await fetch('/api/redis/purge', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { opsStatus('Redis purge failed: ' + (data.error || res.statusText), 'err'); return; }
+    opsStatus(`Redis purged — ${data.deleted_keys} keys deleted.`, 'ok');
+  } catch (e) {
+    opsStatus('Redis purge error: ' + e.message, 'err');
+  } finally {
+    opsBusy(false);
+  }
+}
+
+async function queuesPurge() {
+  if (!confirm('Purge all Sentinel agent queues (input + output)?\n\nAll pending messages will be permanently deleted.')) return;
+  opsBusy(true);
+  opsStatus('Purging queues…', 'info');
+  try {
+    const res = await fetch('/api/queues/purge', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { opsStatus('Queue purge failed: ' + (data.error || res.statusText), 'err'); return; }
+    let msg = 'Purged: ' + (data.purged.join(', ') || 'none');
+    if (data.skipped.length) msg += ' | Skipped (in progress): ' + data.skipped.join(', ');
+    if (data.errors.length) msg += ' | Errors: ' + data.errors.map(e => e.queue).join(', ');
+    opsStatus(msg, data.errors.length ? 'err' : 'ok');
+  } catch (e) {
+    opsStatus('Queue purge error: ' + e.message, 'err');
+  } finally {
+    opsBusy(false);
+  }
+}
+
+async function modelsExport() {
+  modelsBusy(true);
+  modelStatus('Exporting…', 'info');
+  try {
+    const res = await fetch('/api/models/export');
+    if (!res.ok) {
+      const err = await res.json();
+      modelStatus('Export failed: ' + (err.error || res.statusText), 'err');
+      return;
+    }
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : 'sentinel-export.tar.gz';
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    modelStatus('Export complete: ' + filename, 'ok');
+  } catch (e) {
+    modelStatus('Export error: ' + e.message, 'err');
+  } finally {
+    modelsBusy(false);
+  }
+}
+
+async function modelsImport(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  modelsBusy(true);
+  modelStatus('Uploading ' + file.name + '…', 'info');
+  try {
+    const form = new FormData();
+    form.append('archive', file);
+    const res = await fetch('/api/models/import', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) {
+      let msg = data.error || res.statusText;
+      if (data.detail) {
+        msg += '\n\nArchive agents: ' + (data.detail.archive_agents || []).join(', ');
+        msg += '\nCurrent agents: ' + (data.detail.current_agents || []).join(', ');
+      }
+      modelStatus(msg, 'err');
+      return;
+    }
+    modelStatus(data.message || 'Import successful.', 'ok');
+  } catch (e) {
+    modelStatus('Import error: ' + e.message, 'err');
+  } finally {
+    modelsBusy(false);
+  }
+}
+
+async function modelsClear() {
+  if (!confirm('Delete all trained models from disk?\n\nAgents will return to COLD state on next restart. This cannot be undone.')) return;
+  modelsBusy(true);
+  modelStatus('Clearing…', 'info');
+  try {
+    const res = await fetch('/api/models/clear', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      modelStatus('Clear failed: ' + (data.error || res.statusText), 'err');
+      return;
+    }
+    const agents = (data.cleared || []).join(', ') || 'none';
+    modelStatus('Cleared models for: ' + agents, 'ok');
+  } catch (e) {
+    modelStatus('Clear error: ' + e.message, 'err');
+  } finally {
+    modelsBusy(false);
+  }
+}
+
+// ── Detector modal ─────────────────────────────────────────────────────
+let _detModalAgent = null;
+let _detModalDet   = null;
+
+function openDetectorModal(agentName, detName) {
+  _detModalAgent = agentName;
+  _detModalDet   = detName;
+  _renderDetectorModal();
+  document.getElementById('detector-modal').classList.add('open');
+}
+
+function _renderDetectorModal() {
+  const ag  = state.agents[_detModalAgent];
+  const det = ag && ag.detectors && ag.detectors.find(d => d.name === _detModalDet);
+  if (!det) return;
+
+  const phase    = det.phase || 'COLD';
+  const chipCls  = algoChipClass(det.algorithm);
+  const label    = algoLabel(det.algorithm);
+  const fp       = (det.champion_fp_rate ?? 1.0) < 1.0 ? (det.champion_fp_rate * 100).toFixed(1) + '%' : '—';
+  const rej      = det.challengers_rejected || 0;
+  const fpColor  = (det.champion_fp_rate ?? 1.0) < 1.0 ? 'var(--green)' : 'var(--muted)';
+  const toPhase  = phase === 'TRAINING' ? 'INFERENCE' : phase === 'INFERENCE' ? 'TRAINING' : null;
+  const btnCls   = phase === 'TRAINING' ? 'to-inference' : phase === 'INFERENCE' ? 'to-training' : '';
+  const btnLbl   = phase === 'TRAINING' ? '▶ Switch to Inference' : phase === 'INFERENCE' ? '◀ Switch to Training' : phase;
+  const dotColor = phase === 'INFERENCE' ? 'var(--inference)' : phase === 'TRAINING' ? 'var(--training)' : 'var(--cold)';
+  const aitOn    = det.auto_infer_fp_threshold != null;
+  const aitPct   = aitOn ? Math.round(det.auto_infer_fp_threshold * 100) : 5;
+
+  document.getElementById('det-modal-title').innerHTML =
+    `<span style="display:inline-flex;align-items:center;gap:8px">
+       <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};display:inline-block"></span>
+       ${_detModalDet}
+     </span>`;
+
+  let btnHtml = '';
+  if (toPhase) {
+    btnHtml = `<button class="phase-btn ${btnCls}" style="margin-top:4px"
+      onclick="changeDetectorPhase('${_detModalAgent}','${_detModalDet}','${toPhase}',this)">
+      ${btnLbl}
+    </button>`;
+  }
+
+  document.getElementById('det-modal-body').innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Algorithm</div>
+        <div class="detail-cell-val"><span class="algo-chip ${chipCls}">${label}</span></div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Phase</div>
+        <div class="detail-cell-val"><span class="badge ${phase}">${phase}</span></div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Champion FP rate</div>
+        <div class="detail-cell-val" style="color:${fpColor}">${fp}</div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Challengers rejected</div>
+        <div class="detail-cell-val">${rej}</div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Training cycles</div>
+        <div class="detail-cell-val">${det.training_count ?? 0}</div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Last score</div>
+        <div class="detail-cell-val">${det.last_score !== undefined ? det.last_score.toFixed(4) : '—'}</div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Test buffer</div>
+        <div class="detail-cell-val">${det.test_buffer_count ?? 0} samples</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:7px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Auto-Infer Threshold (AIT)</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px">
+          <input type="checkbox" id="ait-modal-chk" ${aitOn ? 'checked' : ''} onchange="onAitModalToggle(this.checked)">
+          Enabled
+        </label>
+        <span style="color:var(--muted);font-size:11px">FP rate below</span>
+        <input type="number" id="ait-modal-pct" min="0" max="100" value="${aitPct}"
+          style="width:54px;padding:2px 5px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+        <span style="color:var(--muted);font-size:11px">%</span>
+        <button class="test-save-btn" onclick="saveAitModal()">Save</button>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">Quando o champion FP rate cair abaixo do threshold, o detector transiciona automaticamente para INFERENCE.</div>
+    </div>
+    ${btnHtml}`;
+}
+
+function closeDetectorModal() {
+  document.getElementById('detector-modal').classList.remove('open');
+  _detModalAgent = null;
+  _detModalDet   = null;
+}
+
+function closeDetectorModalOnOverlay(e) {
+  if (e.target === document.getElementById('detector-modal')) closeDetectorModal();
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────
+fetch('/api/config')
+  .then(r => r.ok ? r.json() : null)
+  .then(cfg => { if (cfg) sentinelConfig = cfg; })
+  .catch(() => {})
+  .finally(() => connect());
+</script>
+</body>
+</html>

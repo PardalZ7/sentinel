@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sentinel Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #58a6ff;
+      letter-spacing: 0.5px;
+    }
+
+    header .subtitle {
+      color: #8b949e;
+      font-size: 13px;
+    }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 16px 24px;
+      flex: 1;
+    }
+
+    .panel {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: #1c2128;
+      border-bottom: 1px solid #30363d;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .panel-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e6edf3;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .panel-body {
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    select {
+      background: #0d1117;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      outline: none;
+    }
+
+    select:focus { border-color: #58a6ff; }
+
+    button {
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover { background: #30363d; }
+
+    .btn-reset {
+      background: #3a1a1a;
+      color: #f85149;
+      border-color: #6e3a3a;
+      font-weight: 600;
+      font-size: 12px;
+      padding: 5px 12px;
+    }
+    .btn-reset:hover { background: #6e3a3a; color: #fff; }
+    .btn-reset:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-purge {
+      background: #2d2200;
+      color: #e3b341;
+      border-color: #6e5500;
+      font-weight: 600;
+      font-size: 12px;
+      padding: 5px 12px;
+    }
+    .btn-purge:hover { background: #6e5500; color: #fff; }
+    .btn-purge:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* App Controls */
+    .app-tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 8px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 5px 14px;
+      color: #8b949e;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tab-btn:hover { color: #c9d1d9; background: #21262d; }
+    .tab-btn.active { color: #58a6ff; border-color: #30363d; background: #1c2128; }
+
+    .app-panel { display: none; }
+    .app-panel.active { display: flex; flex-direction: column; gap: 16px; }
+
+    .config-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .config-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #e6edf3;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .config-value {
+      color: #58a6ff;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 600;
+      min-width: 60px;
+      text-align: right;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 4px;
+      background: #21262d;
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+      accent-color: #58a6ff;
+    }
+
+    .config-status {
+      font-size: 12px;
+      color: #8b949e;
+      height: 16px;
+    }
+
+    .config-status.ok { color: #3fb950; }
+    .config-status.err { color: #f85149; }
+
+    .btn-start {
+      background: #1a3a1a;
+      color: #3fb950;
+      border-color: #238636;
+      font-weight: 600;
+    }
+    .btn-start:hover { background: #238636; color: #fff; }
+
+    .btn-stop {
+      background: #3a1a1a;
+      color: #f85149;
+      border-color: #6e3a3a;
+      font-weight: 600;
+    }
+    .btn-stop:hover { background: #6e3a3a; color: #fff; }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #21262d;
+    }
+
+    /* App Output */
+    .output-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .output-status {
+      font-size: 11px;
+      color: #8b949e;
+    }
+
+    .output-log {
+      flex: 1;
+      min-height: 300px;
+      max-height: 480px;
+      overflow-y: auto;
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 6px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+    }
+
+    .output-log::-webkit-scrollbar { width: 6px; }
+    .output-log::-webkit-scrollbar-track { background: #0d1117; }
+    .output-log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+    .log-entry {
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 4px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+    .log-ts {
+      color: #6e7681;
+      font-size: 11px;
+    }
+
+    .log-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .log-label {
+      font-size: 11px;
+      font-weight: 700;
+      min-width: 48px;
+      padding-top: 1px;
+    }
+
+    .log-label.in  { color: #79c0ff; }
+    .log-label.out { color: #56d364; }
+    .log-label.out-only { color: #e3b341; }
+
+    .log-payload {
+      color: #c9d1d9;
+      white-space: pre-wrap;
+      word-break: break-all;
+      flex: 1;
+    }
+
+    .empty-log {
+      color: #484f58;
+      text-align: center;
+      margin: auto;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sentinel</h1>
+    <span class="subtitle">Pipeline Monitor &amp; Control</span>
+    <button class="btn-purge" id="purge-btn" onclick="purgeUsecaseQueues()" style="margin-left:auto;">⟳ Purge Queues</button>
+    <button class="btn-reset" id="reset-btn" onclick="resetAll()">⚠ Reset Sentinel</button>
+    <span id="reset-status" style="font-size:12px;color:#8b949e;"></span>
+  </header>
+
+  <div class="main">
+    <!-- App Controls Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>App Controls</h2>
+      </div>
+      <div class="panel-body">
+        <div class="app-tabs" id="app-tabs">
+          <button class="tab-btn active" data-app="app01">APP01</button>
+          <button class="tab-btn" data-app="app02">APP02</button>
+          <button class="tab-btn" data-app="app03">APP03</button>
+          <button class="tab-btn" data-app="app04">APP04</button>
+        </div>
+
+        <!-- APP01 -->
+        <div class="app-panel active" id="panel-app01">
+          <div class="config-group">
+            <div class="config-label">
+              <span>Publish Interval</span>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="app01-intervalMs-input" min="25" max="5000" step="25" value="1000"
+                  style="width:72px;background:#0d1117;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:3px 7px;font-family:monospace;font-size:13px;font-weight:600;text-align:right;outline:none;" />
+                <span style="color:#8b949e;font-size:12px;">ms</span>
+              </div>
+            </div>
+            <input type="range" id="app01-intervalMs" min="25" max="5000" step="25" value="1000" />
+          </div>
+          <hr class="divider" />
+          <div class="config-group">
+            <div class="config-label">
+              <span>Error Rate</span>
+              <span class="config-value" id="app01-errorRate-val">0.00</span>
+            </div>
+            <input type="range" id="app01-errorRate" min="0" max="1" step="0.01" value="0" />
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <button class="btn-start" id="app01-toggle-btn" onclick="toggleApp01()">▶ Start</button>
+            <span style="font-size:13px;color:#8b949e;">Published:</span>
+            <span id="app01-published-count" style="font-family:monospace;font-size:15px;font-weight:700;color:#3fb950;">0</span>
+            <div class="config-status" id="app01-status"></div>
+          </div>
+        </div>
+
+        <!-- APP02 -->
+        <div class="app-panel" id="panel-app02">
+          <div class="config-group">
+            <div class="config-label">
+              <span>Processing Delay</span>
+              <span class="config-value" id="app02-delayMs-val">0 ms</span>
+            </div>
+            <input type="range" id="app02-delayMs" min="0" max="3000" step="100" value="0" />
+          </div>
+          <hr class="divider" />
+          <div class="config-group">
+            <div class="config-label">
+              <span>Error Rate</span>
+              <span class="config-value" id="app02-errorRate-val">0.00</span>
+            </div>
+            <input type="range" id="app02-errorRate" min="0" max="1" step="0.01" value="0" />
+          </div>
+          <div class="config-status" id="app02-status"></div>
+        </div>
+
+        <!-- APP03 -->
+        <div class="app-panel" id="panel-app03">
+          <div class="config-group">
+            <div class="config-label">
+              <span>Processing Delay</span>
+              <span class="config-value" id="app03-delayMs-val">0 ms</span>
+            </div>
+            <input type="range" id="app03-delayMs" min="0" max="3000" step="100" value="0" />
+          </div>
+          <hr class="divider" />
+          <div class="config-group">
+            <div class="config-label">
+              <span>Error Rate</span>
+              <span class="config-value" id="app03-errorRate-val">0.00</span>
+            </div>
+            <input type="range" id="app03-errorRate" min="0" max="1" step="0.01" value="0" />
+          </div>
+          <div class="config-status" id="app03-status"></div>
+        </div>
+
+        <!-- APP04 -->
+        <div class="app-panel" id="panel-app04">
+          <div class="config-group">
+            <div class="config-label">
+              <span>Processing Delay</span>
+              <span class="config-value" id="app04-delayMs-val">0 ms</span>
+            </div>
+            <input type="range" id="app04-delayMs" min="0" max="3000" step="100" value="0" />
+          </div>
+          <hr class="divider" />
+          <div class="config-group">
+            <div class="config-label">
+              <span>Error Rate</span>
+              <span class="config-value" id="app04-errorRate-val">0.00</span>
+            </div>
+            <input type="range" id="app04-errorRate" min="0" max="1" step="0.01" value="0" />
+          </div>
+          <div class="config-status" id="app04-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- App Output Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2 id="output-title">APP01 — Output</h2>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="output-status" id="output-status"></span>
+          <button id="refresh-btn" onclick="refreshBuffer()" style="font-size:12px;padding:4px 10px;">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="output-log" id="output-log">
+          <span class="empty-log">Press Refresh to load messages…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── App Controls ──────────────────────────────────────────────────────────
+
+    let activeApp = 'app01';
+
+    const tabs = document.querySelectorAll('.tab-btn');
+    const panels = document.querySelectorAll('.app-panel');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.app).classList.add('active');
+        activeApp = tab.dataset.app;
+        document.getElementById('output-title').textContent = tab.dataset.app.toUpperCase() + ' — Output';
+        outputLog.innerHTML = '<span class="empty-log">Press Refresh to load messages…</span>';
+        outputStatus.textContent = '';
+      });
+    });
+
+    async function loadAppConfig(appId) {
+      try {
+        const res = await fetch(`/app/${appId}/config`);
+        const cfg = await res.json();
+        applyConfig(appId, cfg);
+      } catch (e) {
+        console.warn(`Could not load config for ${appId}`, e);
+      }
+    }
+
+    function applyConfig(appId, cfg) {
+      if (appId === 'app01' && cfg.publishedCount !== undefined) {
+        document.getElementById('app01-published-count').textContent = cfg.publishedCount;
+      }
+      if (cfg.intervalMs !== undefined) {
+        const slider = document.getElementById(`${appId}-intervalMs`);
+        const numInput = document.getElementById(`${appId}-intervalMs-input`);
+        const val = document.getElementById(`${appId}-intervalMs-val`);
+        if (slider) slider.value = cfg.intervalMs;
+        if (numInput) numInput.value = cfg.intervalMs;
+        if (val) val.textContent = cfg.intervalMs + ' ms';
+      }
+      if (cfg.delayMs !== undefined) {
+        const el = document.getElementById(`${appId}-delayMs`);
+        const val = document.getElementById(`${appId}-delayMs-val`);
+        if (el) { el.value = cfg.delayMs; val.textContent = cfg.delayMs + ' ms'; }
+      }
+      if (cfg.errorRate !== undefined) {
+        const el = document.getElementById(`${appId}-errorRate`);
+        const val = document.getElementById(`${appId}-errorRate-val`);
+        if (el) { el.value = cfg.errorRate; val.textContent = parseFloat(cfg.errorRate).toFixed(2); }
+      }
+      if (appId === 'app01' && cfg.running !== undefined) {
+        updateToggleBtn(cfg.running);
+      }
+    }
+
+    let app01Running = false;
+
+    function updateToggleBtn(running) {
+      app01Running = running;
+      const btn = document.getElementById('app01-toggle-btn');
+      if (!btn) return;
+      if (running) {
+        btn.textContent = '⏹ Stop';
+        btn.className = 'btn-stop';
+      } else {
+        btn.textContent = '▶ Start';
+        btn.className = 'btn-start';
+      }
+    }
+
+    async function toggleApp01() {
+      const next = !app01Running;
+      try {
+        const res = await fetch('/app/app01/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ running: next }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        updateToggleBtn(data.running);
+      } catch (e) {
+        const statusEl = document.getElementById('app01-status');
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.className = 'config-status err';
+      }
+    }
+
+    async function sendConfig(appId, body) {
+      const statusEl = document.getElementById(`${appId}-status`);
+      try {
+        const res = await fetch(`/app/${appId}/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        statusEl.textContent = 'Saved';
+        statusEl.className = 'config-status ok';
+        setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'config-status'; }, 2000);
+      } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.className = 'config-status err';
+      }
+    }
+
+    function wireSlider(appId, field, displaySuffix) {
+      const slider = document.getElementById(`${appId}-${field}`);
+      const display = document.getElementById(`${appId}-${field}-val`);
+      if (!slider) return;
+
+      slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value);
+        display.textContent = field === 'errorRate' ? v.toFixed(2) : (v + displaySuffix);
+      });
+
+      slider.addEventListener('change', () => {
+        const v = parseFloat(slider.value);
+        sendConfig(appId, { [field]: v });
+      });
+    }
+
+    // intervalMs: slider + number input sincronizados
+    (function () {
+      const slider = document.getElementById('app01-intervalMs');
+      const numInput = document.getElementById('app01-intervalMs-input');
+
+      slider.addEventListener('input', () => { numInput.value = slider.value; });
+      slider.addEventListener('change', () => {
+        numInput.value = slider.value;
+        sendConfig('app01', { intervalMs: parseFloat(slider.value) });
+      });
+
+      function applyNumInput() {
+        let v = parseInt(numInput.value, 10);
+        if (isNaN(v) || v < 25) v = 25;
+        if (v > 5000) v = 5000;
+        numInput.value = v;
+        slider.value = v;
+        sendConfig('app01', { intervalMs: v });
+      }
+      numInput.addEventListener('change', applyNumInput);
+      numInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyNumInput(); });
+    })();
+
+    wireSlider('app01', 'errorRate', '');
+    wireSlider('app02', 'delayMs', ' ms');
+    wireSlider('app02', 'errorRate', '');
+    wireSlider('app03', 'delayMs', ' ms');
+    wireSlider('app03', 'errorRate', '');
+    wireSlider('app04', 'delayMs', ' ms');
+    wireSlider('app04', 'errorRate', '');
+
+    // ── App Output ────────────────────────────────────────────────────────────
+
+    const outputLog = document.getElementById('output-log');
+    const outputStatus = document.getElementById('output-status');
+
+    function buildEntry(entry) {
+      const el = document.createElement('div');
+      el.className = 'log-entry';
+
+      const ts = document.createElement('div');
+      ts.className = 'log-ts';
+      ts.textContent = entry.timestamp;
+      el.appendChild(ts);
+
+      if (entry.input !== undefined) {
+        const row = document.createElement('div');
+        row.className = 'log-row';
+        row.innerHTML = `<span class="log-label in">IN</span><span class="log-payload">${JSON.stringify(entry.input, null, 2)}</span>`;
+        el.appendChild(row);
+      }
+
+      if (entry.output !== undefined) {
+        const label = entry.input !== undefined ? 'out' : 'out-only';
+        const row = document.createElement('div');
+        row.className = 'log-row';
+        row.innerHTML = `<span class="log-label ${label}">OUT</span><span class="log-payload">${JSON.stringify(entry.output, null, 2)}</span>`;
+        el.appendChild(row);
+      }
+
+      return el;
+    }
+
+    async function refreshBuffer() {
+      const btn = document.getElementById('refresh-btn');
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/app/${activeApp}/buffer`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const entries = await res.json();
+
+        outputLog.innerHTML = '';
+        if (!entries.length) {
+          outputLog.innerHTML = '<span class="empty-log">No messages in buffer yet…</span>';
+        } else {
+          for (const entry of entries) {
+            outputLog.appendChild(buildEntry(entry));
+          }
+        }
+        outputStatus.textContent = `${entries.length} msg · ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        outputStatus.textContent = `error: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // ── Purge Usecase Queues ──────────────────────────────────────────────────
+
+    async function purgeUsecaseQueues() {
+      const btn = document.getElementById('purge-btn');
+      const status = document.getElementById('reset-status');
+      btn.disabled = true;
+      status.textContent = 'Purging…';
+      status.style.color = '#8b949e';
+      try {
+        const res = await fetch('/purge-usecase-queues', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          status.textContent = `Purged ${data.purged.length} queues ✓`;
+          status.style.color = '#e3b341';
+        } else {
+          status.textContent = 'Partial error — check console';
+          status.style.color = '#f85149';
+          console.error(data.errors);
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.style.color = '#f85149';
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => { status.textContent = ''; }, 3000);
+      }
+    }
+
+    // ── Reset ─────────────────────────────────────────────────────────────────
+
+    async function resetAll() {
+      const btn = document.getElementById('reset-btn');
+      const status = document.getElementById('reset-status');
+      btn.disabled = true;
+      status.textContent = 'Clearing…';
+      status.style.color = '#8b949e';
+      try {
+        const res = await fetch('/reset', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          status.textContent = 'Cleared ✓';
+          status.style.color = '#3fb950';
+          outputLog.innerHTML = '<span class="empty-log">Press Refresh to load messages…</span>';
+        } else {
+          status.textContent = 'Partial error — check console';
+          status.style.color = '#f85149';
+          console.error(data.errors);
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.style.color = '#f85149';
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => { status.textContent = ''; }, 3000);
+      }
+    }
+
+    // Init
+    ['app01', 'app02', 'app03', 'app04'].forEach(loadAppConfig);
+    setInterval(() => loadAppConfig('app01'), 1000);
+  </script>
+</body>
+</html>

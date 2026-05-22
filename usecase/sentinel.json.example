@@ -1,0 +1,135 @@
+{
+  "sentinel": {
+    "schema_version": 1,
+    "storage_path": "~/.sentinel/usecase",
+
+    "redis": {
+      "host": "localhost",
+      "port": 6379
+    },
+
+    "aws": {
+      "region": "us-east-1",
+      "endpoint_url": "http://localhost:4566"
+    },
+
+    "dashboard": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 8888
+    },
+
+    "alarm_queue": {
+      "type": "sqs",
+      "resource": "http://localhost:4566/000000000000/sentinel-alarms"
+    },
+
+    "model": {
+      "max_versions": 10,
+      "auto_rollback": true,
+      "isolation_forest": {
+        "n_estimators": 100,
+        "contamination": "auto",
+        "anomaly_threshold": -0.1,
+        "training_window": 200
+      },
+      "autoencoder": {
+        "hidden_dim": 32,
+        "training_window": 500,
+        "learning_rate": 0.001,
+        "epochs": 30
+      }
+    },
+
+    "agents": [
+      {
+        "_comment": "agent01 — monitors APP02 (enricher). Input: raw messages from APP01 via SNS01. Output: enriched messages published to SNS02. Learns: latency of enrichment, sizes, schema (value01+value02+stringSize+result).",
+        "name": "agent01",
+        "input":  { "type": "sqs", "resource": "http://localhost:4566/000000000000/sentinel-a01-in"  },
+        "output": { "type": "sqs", "resource": "http://localhost:4566/000000000000/sentinel-a01-out" },
+        "input_correlation_field": "correlationId",
+        "output_correlation_field": "correlationId",
+        "correlation_mode": "normal",
+        "correlation_ttl_s": 90,
+        "phase": "TRAINING",
+        "cortex": { "host": "localhost", "port": 50051 },
+        "reporting": {
+          "heartbeat_interval_s": 15,
+          "send_all_events": false
+        }
+      },
+      {
+        "_comment": "agent02 — monitors APP03 (batcher). Input: individual enriched messages from SNS02 (each with correlationId). Output: batch message from SNS03 carrying correlationId per record (records[].correlationId). correlation_mode grouping: N inputs produce 1 output.",
+        "name": "agent02",
+        "input":  { "type": "sqs", "resource": "http://localhost:4566/000000000000/sentinel-a02-in"  },
+        "output": { "type": "sqs", "resource": "http://localhost:4566/000000000000/sentinel-a02-out" },
+        "input_correlation_field": "correlationId",
+        "output_correlation_field": "records.correlationId",
+        "correlation_mode": "grouping",
+        "correlation_ttl_s": 150,
+        "phase": "TRAINING",
+        "cortex": { "host": "localhost", "port": 50051 },
+        "reporting": {
+          "heartbeat_interval_s": 15,
+          "send_all_events": false
+        }
+      },
+      {
+        "_comment": "agent03 — monitors APP04 path end-to-end from SNS02 to SNS04. Input: enriched messages from SNS02. Output: validated messages from SNS04. Both carry correlationId.",
+        "name": "agent03",
+        "input":  { "type": "sqs", "resource": "http://localhost:4566/000000000000/sentinel-a03-in"  },
+        "output": { "type": "sqs", "resource": "http://localhost:4566/000000000000/sentinel-a03-out" },
+        "input_correlation_field": "correlationId",
+        "output_correlation_field": "correlationId",
+        "correlation_mode": "normal",
+        "correlation_ttl_s": 90,
+        "phase": "TRAINING",
+        "cortex": { "host": "localhost", "port": 50051 },
+        "reporting": {
+          "heartbeat_interval_s": 15,
+          "send_all_events": false
+        }
+      },
+      {
+        "_comment": "agent04 — monitors the full pipeline from APP01 entry to APP04 exit. Input: raw messages from APP01 via SNS01. Output: validated+enriched messages from SNS04. Catches any end-to-end anomaly.",
+        "name": "agent04",
+        "input":  { "type": "sqs", "resource": "http://localhost:4566/000000000000/sentinel-a04-in"  },
+        "output": { "type": "sqs", "resource": "http://localhost:4566/000000000000/sentinel-a04-out" },
+        "input_correlation_field": "correlationId",
+        "output_correlation_field": "correlationId",
+        "correlation_mode": "normal",
+        "correlation_ttl_s": 200,
+        "phase": "TRAINING",
+        "cortex": { "host": "localhost", "port": 50052 },
+        "reporting": {
+          "heartbeat_interval_s": 15,
+          "send_all_events": false
+        }
+      }
+    ],
+
+    "cortex": [
+      {
+        "_comment": "cortex11 — sectoral cortex. Monitors agent01 (enricher), agent02 (batcher), agent03 (validator path). Detects cascades between enrichment and downstream processing.",
+        "name": "cortex11",
+        "grpc_port": 50051,
+        "inputs": ["agent01", "agent02", "agent03"],
+        "silence_threshold_s": 45
+      },
+      {
+        "_comment": "cortex12 — sectoral cortex. Monitors agent01 (enricher), agent02 (batcher), agent03 (validator path). Detects cascades between enrichment and downstream processing.",
+        "name": "cortex12",
+        "grpc_port": 50052,
+        "inputs": ["agent03", "agent04"],
+        "silence_threshold_s": 45
+      },
+      {
+        "_comment": "cortex21 — top-level cortex. Monitors agent04 (full pipeline) and cortex11 (sectoral). Provides systemic view: correlates end-to-end anomalies with sectoral anomalies.",
+        "name": "cortex21",
+        "grpc_port": 50053,
+        "inputs": ["agent04", "cortex11", "cortex12"],
+        "silence_threshold_s": 60
+      }
+    ]
+  }
+}

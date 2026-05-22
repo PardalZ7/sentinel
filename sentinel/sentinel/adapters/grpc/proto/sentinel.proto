@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package sentinel;
+
+service SentinelCortex {
+  rpc ReportEvent(ProcessedEventProto) returns (Ack);
+  rpc ReportHeartbeat(HeartbeatProto) returns (Ack);
+}
+
+message ProcessedEventProto {
+  string agent_name = 1;
+  string correlation_id = 2;
+  int64 input_received_at_ms = 3;
+  int64 output_sent_at_ms = 4;
+  float processing_latency_ms = 5;
+  float anomaly_score = 6;
+  bool is_anomaly = 7;
+  string anomaly_type = 8;
+  string payload_schema_hash = 9;
+  int32 input_size_bytes = 10;
+  int32 output_size_bytes = 11;
+}
+
+message HeartbeatProto {
+  string agent_name = 1;
+  int64 timestamp_ms = 2;
+  float message_rate_per_sec = 3;
+  float error_rate_last_window = 4;
+  int64 last_message_timestamp_ms = 5;
+  string model_phase = 6;
+}
+
+message Ack {
+  bool ok = 1;
+}

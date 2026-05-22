@@ -1,0 +1,18 @@
+{
+  "name": "sentinel-usecase",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "apps/*",
+    "dashboard"
+  ],
+  "scripts": {
+    "start": "cross-env LOCALSTACK_ENDPOINT=http://localhost:4566 concurrently \"npm run start --workspace=apps/app01\" \"npm run start --workspace=apps/app02\" \"npm run start --workspace=apps/app03\" \"npm run start --workspace=apps/app04\" \"npm run start --workspace=dashboard\"",
+    "setup": "bash infra/init/setup.sh",
+    "reset": "node -e \"require('@sentinel/shared/reset').resetSentinel().then(r => { console.log(r.ok ? 'Reset OK' : 'Errors: ' + r.errors.join(', ')); process.exit(r.ok ? 0 : 1); })\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.0",
+    "cross-env": "^10.1.0"
+  }
+}

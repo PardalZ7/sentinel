@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package sentinel;
+
+// Message published to SQS by a CorrelationEngine after pairing input + output.
+// Consumed by the Agent, which uses it as the sole input for detection and training.
+message CorrelatedPairProto {
+  string engine_name = 1;
+  string correlation_id = 2;
+  bytes input_body = 3;           // JSON-encoded dict
+  bytes output_body = 4;          // JSON-encoded dict
+  int64 input_received_at_ms = 5;
+  int64 output_received_at_ms = 6;
+  int32 input_size_bytes = 7;
+  int32 output_size_bytes = 8;
+  float processing_latency_ms = 9;
+  bool timed_out = 10;            // true when input expired before output arrived
+}

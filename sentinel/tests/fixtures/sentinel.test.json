@@ -1,0 +1,29 @@
+{
+  "sentinel": {
+    "storage_path": "/tmp/sentinel-test",
+    "redis": { "host": "localhost", "port": 6379 },
+    "alarm_queue": { "type": "sqs", "resource": "sentinel-alarms" },
+    "model": {
+      "max_versions": 3,
+      "auto_rollback": false,
+      "isolation_forest": {
+        "n_estimators": 10,
+        "contamination": "auto",
+        "anomaly_threshold": -0.1,
+        "training_window": 20
+      }
+    },
+    "agents": [
+      {
+        "name": "agent01",
+        "input": { "type": "sqs", "resource": "sqs01" },
+        "output": { "type": "sqs", "resource": "sqs02" },
+        "correlation_field": "correlationId",
+        "correlation_ttl_s": 10,
+        "phase": "TRAINING",
+        "reporting": { "heartbeat_interval_s": 5, "send_all_events": true }
+      }
+    ],
+    "cortex": []
+  }
+}
