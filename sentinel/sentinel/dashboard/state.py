@@ -256,6 +256,23 @@ class DashboardState:
             snap.phase = phase
             self._push_sse("cortex_update", {"name": name, "total_messages": snap.total_messages, "training_samples": snap.training_samples, "phase": phase})
 
+    def unregister_agent(self, agent_name: str) -> None:
+        """Remove an agent from the dashboard (called when a dynamic topology is removed)."""
+        self.agents.pop(agent_name, None)
+        self._phase_change_callbacks.pop(agent_name, None)
+        self._agent_set_rate_callbacks.pop(agent_name, None)
+        self._agent_run_test_callbacks.pop(agent_name, None)
+        self._auto_infer_callbacks.pop(agent_name, None)
+        self._push_sse("agent_removed", {"name": agent_name})
+
+    def unregister_cortex(self, cortex_name: str) -> None:
+        """Remove a cortex from the dashboard (called when a dynamic topology is removed)."""
+        self.cortex.pop(cortex_name, None)
+        self._cortex_change_phase_callbacks.pop(cortex_name, None)
+        self._cortex_set_rate_callbacks.pop(cortex_name, None)
+        self._cortex_run_test_callbacks.pop(cortex_name, None)
+        self._push_sse("cortex_removed", {"name": cortex_name})
+
     def register_agent(self, agent_name: str, initial_detector_states: dict) -> None:
         """Pre-register an agent with its detectors so it appears on the dashboard from startup.
 

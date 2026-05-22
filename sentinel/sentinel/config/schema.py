@@ -35,6 +35,12 @@ class DashboardConfig(BaseModel):
     port: int = 8888
 
 
+class ControlPlaneConfig(BaseModel):
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 8889
+
+
 class TransportResourceConfig(BaseModel):
     type: Literal["sqs", "sns", "kafka"] = "sqs"
     resource: str = ""
@@ -232,6 +238,7 @@ class SentinelConfig(BaseModel):
     redis: RedisConfig = Field(default_factory=RedisConfig)
     aws: AwsConfig = Field(default_factory=AwsConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
+    control_plane: ControlPlaneConfig = Field(default_factory=ControlPlaneConfig)
     alarm_queue: TransportResourceConfig = Field(default_factory=TransportResourceConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     correlation_engines: list[CorrelationEngineConfig] = Field(default_factory=list)

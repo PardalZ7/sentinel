@@ -1157,6 +1157,13 @@ async def launch(
             tasks.append(asyncio.create_task(runner.run(), name=f"engine-{engine_config.name}"))
 
     if run_agents:
+        from sentinel.runtime.topology_manager import TopologyManager
+        from sentinel.runtime.topology_store import TopologyStore
+
+        topology_store = TopologyStore(config.storage_path)
+        topology_manager = TopologyManager(config, ds)
+        await topology_manager.restore_from_store(topology_store)
+
         for agent_config in config.agents:
             runner = build_agent(agent_config, config, ds)
             tasks.append(asyncio.create_task(runner.run(), name=f"agent-{agent_config.name}"))
@@ -1164,6 +1171,20 @@ async def launch(
         for cortex_config in config.cortex:
             runner = build_cortex(cortex_config, config, ds)
             tasks.append(asyncio.create_task(runner.run(), name=f"cortex-{cortex_config.name}"))
+
+        if config.control_plane.enabled:
+            from sentinel.runtime.control_plane import create_control_plane_app, start_control_plane
+            cp_app = create_control_plane_app(topology_manager, topology_store)
+            tasks.append(
+                asyncio.create_task(
+                    start_control_plane(
+                        cp_app,
+                        host=config.control_plane.host,
+                        port=config.control_plane.port,
+                    ),
+                    name="control_plane",
+                )
+            )
 
         if config.dashboard.enabled and ds is not None:
             from sentinel.dashboard.server import start_dashboard
@@ -1187,6 +1208,11 @@ async def launch(
         dashboard=(
             f"http://{config.dashboard.host}:{config.dashboard.port}"
             if config.dashboard.enabled
+            else "disabled"
+        ),
+        control_plane=(
+            f"http://{config.control_plane.host}:{config.control_plane.port}"
+            if (run_agents and config.control_plane.enabled)
             else "disabled"
         ),
     )

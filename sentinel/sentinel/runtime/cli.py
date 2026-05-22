@@ -14,6 +14,7 @@
 
 import asyncio
 import sys
+from pathlib import Path
 
 import click
 
@@ -88,6 +89,80 @@ def set_phase_cmd(agent_name: str, phase: str) -> None:
         "Note: To apply this change to a running Sentinel instance, "
         "ensure your deployment supports live phase transitions via the admin API."
     )
+
+
+@cli.command()
+@click.option(
+    "--config",
+    default="sentinel.json",
+    show_default=True,
+    help="Path to the sentinel.json to deploy.",
+)
+@click.option(
+    "--sentinel-url",
+    required=True,
+    envvar="SENTINEL_URL",
+    help="Base URL of the Sentinel Control Plane (e.g. https://sentinel.example.com).",
+)
+@click.option(
+    "--id",
+    "topology_id",
+    default=None,
+    help="Topology ID (default: stem of the config filename, e.g. 'sentinel' for sentinel.json).",
+)
+@click.option(
+    "--no-engines",
+    is_flag=True,
+    default=False,
+    help="Register the topology with Sentinel but do NOT start engines locally.",
+)
+def deploy(config: str, sentinel_url: str, topology_id: str | None, no_engines: bool) -> None:
+    """Deploy a topology to the Sentinel Control Plane and start local engines.
+
+    Reads the sentinel.json, POSTs the topology to the remote Sentinel instance,
+    then launches CorrelationEngines locally (--mode engine) unless --no-engines is set.
+
+    The SENTINEL_URL environment variable can be used instead of --sentinel-url.
+    """
+    import aiohttp
+
+    from sentinel.config.loader import load_config
+    from sentinel.runtime.launcher import launch
+
+    try:
+        sentinel_config = load_config(config)
+    except Exception as exc:
+        click.echo(f"Error loading config: {exc}", err=True)
+        sys.exit(1)
+
+    tid = topology_id or Path(config).stem
+
+    async def _run() -> None:
+        url = f"{sentinel_url.rstrip('/')}/topologies/{tid}"
+        click.echo(f"Deploying topology '{tid}' to {url} ...")
+        async with aiohttp.ClientSession() as session:
+            async with session.put(
+                url,
+                json={"config": sentinel_config.model_dump(mode="json")},
+                headers={"Content-Type": "application/json"},
+            ) as resp:
+                if resp.status not in (200, 201):
+                    body = await resp.text()
+                    click.echo(f"Sentinel returned {resp.status}: {body}", err=True)
+                    sys.exit(1)
+                result = await resp.json()
+
+        click.echo(
+            f"Topology '{tid}' applied — "
+            f"agents: {result.get('agents')}, cortex: {result.get('cortex')}"
+        )
+        logger.info("deploy_complete", topology=tid, **result)
+
+        if not no_engines:
+            click.echo("Starting correlation engines locally ...")
+            await launch(sentinel_config, mode="engine")
+
+    asyncio.run(_run())
 
 
 @cli.command()
