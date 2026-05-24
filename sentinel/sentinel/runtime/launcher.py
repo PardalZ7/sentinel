@@ -19,8 +19,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-import numpy as np
-
 from sentinel.adapters.alerting.sns_timeout_notifier import SnsTimeoutNotifier
 from sentinel.adapters.grpc.client import GrpcReporter
 from sentinel.adapters.grpc.generated.correlated_pair_pb2 import CorrelatedPairProto
@@ -431,7 +429,7 @@ class CortexRunner:
     causal_window: deque = field(default_factory=lambda: deque(maxlen=100))
     phase: ModelPhase = field(default=ModelPhase.TRAINING)
     autoencoder_model: SentinelAutoencoder | None = None
-    training_buffer: list[np.ndarray] = field(default_factory=list)
+    training_buffer: list = field(default_factory=list)
     baseline_error: float = 0.01
     test_sample_rate: float = 0.0
     test_buffer: deque = field(default_factory=deque)
@@ -452,7 +450,7 @@ class CortexRunner:
                 return False
         return True
 
-    async def _accumulate_training_sample(self) -> np.ndarray | None:
+    async def _accumulate_training_sample(self):
         # INFERENCE: always build and return the current sample for scoring.
         if self.phase == ModelPhase.INFERENCE:
             matrix = build_feature_matrix(self.state_vectors)
@@ -536,6 +534,7 @@ class CortexRunner:
             cortex=self.cortex_config.name,
             samples=len(self.training_buffer),
         )
+        import numpy as np
         samples = np.array(self.training_buffer, dtype=np.float32)
         input_dim = samples.shape[1]
         model = create_autoencoder(input_dim=input_dim, hidden_dim=ae_config.hidden_dim)
@@ -600,6 +599,7 @@ class CortexRunner:
             return {"samples_run": 0, "failed": 0}
 
         try:
+            import numpy as np
             samples = np.array(self.test_buffer, dtype=np.float32)
             tensor = torch.tensor(samples, dtype=torch.float32)
             with torch.no_grad():
@@ -773,7 +773,7 @@ class CortexRunner:
         if self.dashboard_state:
             self.dashboard_state.record_cortex_event(self.cortex_config.name)
 
-    async def _run_inference(self, sample: np.ndarray | None = None) -> None:
+    async def _run_inference(self, sample=None) -> None:
         from sentinel.cortex.dual_network import run_dual_network
 
         if (
