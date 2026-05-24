@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY . .
 
-RUN pip install -e sentinel/
+RUN pip install -e .
 
 CMD ["sentinel", "start", "--config", "sentinel-cloud.json", "--mode", "agent"]
