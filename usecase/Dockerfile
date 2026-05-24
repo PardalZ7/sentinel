@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 
 WORKDIR /app
 
+ARG CACHE_BUST=1
 RUN pip install --no-cache-dir \
     "sentinel[engine] @ git+https://github.com/PardalZ7/sentinel.git#subdirectory=sentinel"
 
