@@ -746,3 +746,4 @@ async def start_dashboard(
     site = web.TCPSite(runner, host, port)
     await site.start()
     logger.info("dashboard_started", url=f"http://{host}:{port}")
+    await asyncio.Event().wait()
