@@ -3,9 +3,7 @@ set -e
 
 # Parse REDIS_URL (redis://user:pass@host:port) into SENTINEL_ vars
 if [ -n "$REDIS_URL" ]; then
-    # Strip scheme
     rest="${REDIS_URL#redis://}"
-    # Extract user:pass@host:port
     if [[ "$rest" == *"@"* ]]; then
         userpass="${rest%@*}"
         hostport="${rest##*@}"
@@ -20,6 +18,14 @@ if [ -n "$REDIS_URL" ]; then
     export SENTINEL_REDIS_PORT
 fi
 
+# Start Node apps in background
+node /app/apps/app01/index.js &
+node /app/apps/app02/index.js &
+node /app/apps/app03/index.js &
+node /app/apps/app04/index.js &
+node /app/dashboard/server.js &
+
+# Start sentinel engines (foreground — keeps container alive)
 exec sentinel deploy \
     --config sentinel.json \
     --sentinel-url "$SENTINEL_URL"
