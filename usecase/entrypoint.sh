@@ -26,6 +26,4 @@ node /app/apps/app04/index.js &
 node /app/dashboard/server.js &
 
 # Start sentinel engines (foreground — keeps container alive)
-exec sentinel deploy \
-    --config sentinel.json \
-    --sentinel-url "$SENTINEL_URL"
+exec sentinel start --config sentinel.json --mode engine
