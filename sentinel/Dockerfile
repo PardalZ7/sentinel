@@ -5,5 +5,6 @@ WORKDIR /app
 COPY . .
 
 RUN pip install -e ".[agent]"
+RUN chmod +x entrypoint.sh
 
-CMD ["sentinel", "start", "--config", "sentinel-cloud.json", "--mode", "agent"]
+CMD ["./entrypoint.sh"]
