@@ -20,7 +20,7 @@
 
     "alarm_queue": {
       "type": "sqs",
-      "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-alarms"
+      "resource": "${SQS_BASE_URL}/sentinel-alarms"
     },
 
     "model": {
@@ -44,49 +44,49 @@
       {
         "_comment": "engine01 — APP02 enricher (1:1, 180s). Correlates by correlationId, normal mode (delete key on match). Publishes CorrelatedPairs to agent01's pairs queue.",
         "name": "engine01",
-        "input":  { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a01-in"  },
-        "output": { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a01-out" },
+        "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-in"  },
+        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-out" },
         "correlation_field": "correlationId",
         "correlation_mode": "normal",
         "correlation_ttl_s": 180,
         "destinations": [
-          { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a01-pairs" }
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-pairs" }
         ]
       },
       {
         "_comment": "engine02 — APP03 batcher (N:1, 1800s). Grouping mode: multiple inputs share one output batch. correlationId on inputs, records[*].correlationId on the batch output groups them. Publishes to agent02's pairs queue.",
         "name": "engine02",
-        "input":  { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a02-in"  },
-        "output": { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a02-out" },
+        "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-in"  },
+        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-out" },
         "correlation_field": "correlationId",
         "correlation_mode": "grouping",
         "correlation_ttl_s": 1800,
         "destinations": [
-          { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a02-pairs" }
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-pairs" }
         ]
       },
       {
         "_comment": "engine03 — APP04 validator (1:1, 180s). Correlates by correlationId, normal mode. Input comes from APP02 enriched output; output is the validated result. Publishes to agent03 and agent04 (end-to-end view shares the same input event).",
         "name": "engine03",
-        "input":  { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a03-in"  },
-        "output": { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a03-out" },
+        "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in"  },
+        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out" },
         "correlation_field": "correlationId",
         "correlation_mode": "normal",
         "correlation_ttl_s": 180,
         "destinations": [
-          { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a03-pairs" }
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" }
         ]
       },
       {
         "_comment": "engine04 — full end-to-end pipeline (1:1, 600s). Correlates the very first input event with the final pipeline output. Longest TTL to cover the full pipeline duration.",
         "name": "engine04",
-        "input":  { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a04-in"  },
-        "output": { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a04-out" },
+        "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in"  },
+        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-out" },
         "correlation_field": "correlationId",
         "correlation_mode": "normal",
         "correlation_ttl_s": 600,
         "destinations": [
-          { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a04-pairs" }
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" }
         ]
       }
     ],
@@ -95,7 +95,7 @@
       {
         "_comment": "agent01 — APP02 enricher. Detectors: IF for operational anomalies (latency/size/schema); cVAE to detect when output fields are semantically inconsistent with input (e.g. wrong sum, missing fields).",
         "name": "agent01",
-        "pairs_queue": { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a01-pairs" },
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-pairs" },
         "test_buffer_size": 150,
         "cortex": [{ "host": "localhost", "port": 50051 }],
         "reporting": {
@@ -140,7 +140,7 @@
       {
         "_comment": "agent02 — APP03 batcher (N:1). Detectors: IF for operational features of the batch output; MAF to learn the joint distribution of batch-level metrics.",
         "name": "agent02",
-        "pairs_queue": { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a02-pairs" },
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-pairs" },
         "test_buffer_size": 150,
         "cortex": [
           { "host": "localhost", "port": 50051 }
@@ -180,7 +180,7 @@
       {
         "_comment": "agent03 — APP04 validator (1:1). Detectors: IF for operational anomalies; cVAE to detect when validated output is inconsistent with enriched input.",
         "name": "agent03",
-        "pairs_queue": { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a03-pairs" },
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" },
         "test_buffer_size": 150,
         "cortex": [
           { "host": "localhost", "port": 50051 },
@@ -228,7 +228,7 @@
       {
         "_comment": "agent04 — full end-to-end pipeline (1:1). Detectors: IF for end-to-end latency and size; MAF to learn the joint distribution of all metrics across the complete pipeline.",
         "name": "agent04",
-        "pairs_queue": { "type": "sqs", "resource": "https://sqs.us-east-1.amazonaws.com/508235830925/sentinel-a04-pairs" },
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" },
         "test_buffer_size": 100,
         "cortex": [
           { "host": "localhost", "port": 50052 },
