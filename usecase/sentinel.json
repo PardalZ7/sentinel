@@ -76,8 +76,7 @@
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out" },
         "correlation_field": "correlationId",
-        "output_correlation_field": "records.correlationId",
-        "correlation_mode": "grouping",
+        "correlation_mode": "normal",
         "correlation_ttl_s": 180,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" }
@@ -89,8 +88,7 @@
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-out" },
         "correlation_field": "correlationId",
-        "output_correlation_field": "records.correlationId",
-        "correlation_mode": "grouping",
+        "correlation_mode": "normal",
         "correlation_ttl_s": 600,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" }
