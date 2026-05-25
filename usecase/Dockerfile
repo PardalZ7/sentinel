@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python sentinel package
-ARG CACHE_BUST=2
+ARG CACHE_BUST=3
 RUN pip install --no-cache-dir \
     "sentinel[engine] @ git+https://github.com/PardalZ7/sentinel.git#subdirectory=sentinel"
 
