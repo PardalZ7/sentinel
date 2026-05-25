@@ -40,23 +40,26 @@ class TopologyManager:
         - Components running but removed from desired → cancelled.
         - Infrastructure (redis, aws, storage_path) is always taken from base_config.
         """
-        from sentinel.runtime.launcher import build_agent, build_cortex
+        from sentinel.runtime.launcher import build_agent, build_cortex, build_correlation_engine
 
         merged = self._merge_infra(topology_config)
+        desired_engines = {e.name: e for e in merged.correlation_engines}
         desired_agents = {a.name: a for a in merged.agents}
         desired_cortex = {c.name: c for c in merged.cortex}
+        desired_all = {**desired_engines, **desired_agents, **desired_cortex}
 
         existing = self._topologies.get(topology_id)
         if existing:
-            # Cancel tasks for components removed from desired
+            existing_agent_names = {a.name for a in existing.config.agents}
+            existing_cortex_names = {c.name for c in existing.config.cortex}
             for name in list(existing.tasks.keys()):
-                if name not in desired_agents and name not in desired_cortex:
+                if name not in desired_all:
                     existing.tasks[name].cancel()
                     del existing.tasks[name]
                     if self._dashboard_state:
-                        if name in {a.name for a in existing.config.agents}:
+                        if name in existing_agent_names:
                             self._dashboard_state.unregister_agent(name)
-                        else:
+                        elif name in existing_cortex_names:
                             self._dashboard_state.unregister_cortex(name)
                     logger.info("topology_component_removed", name=name, topology=topology_id)
 
@@ -66,6 +69,13 @@ class TopologyManager:
             self._topologies[topology_id].config = merged
 
         topo = self._topologies[topology_id]
+
+        for name, engine_config in desired_engines.items():
+            if name not in topo.tasks or topo.tasks[name].done():
+                runner = build_correlation_engine(engine_config, merged)
+                task = asyncio.create_task(runner.run(), name=f"dyn-engine-{name}")
+                topo.tasks[name] = task
+                logger.info("topology_engine_started", engine=name, topology=topology_id)
 
         for name, agent_config in desired_agents.items():
             if name not in topo.tasks or topo.tasks[name].done():
@@ -100,6 +110,7 @@ class TopologyManager:
         result: dict = {}
         for tid, topo in self._topologies.items():
             result[tid] = {
+                "engines": [e.name for e in topo.config.correlation_engines],
                 "agents": [a.name for a in topo.config.agents],
                 "cortex": [c.name for c in topo.config.cortex],
                 "tasks": {

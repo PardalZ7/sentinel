@@ -5,7 +5,8 @@
   "exports": {
     ".": "./aws.js",
     "./reset": "./reset.js",
-    "./topology": "./topology.js"
+    "./topology": "./topology.js",
+    "./sentinel-cp": "./sentinel_cp.js"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.0.0",

@@ -690,26 +690,28 @@
       const btn = document.getElementById('topology-btn');
       const status = document.getElementById('reset-status');
       btn.disabled = true;
-      status.textContent = 'Creating topology…';
+      status.textContent = 'Deploying topology…';
       status.style.color = '#8b949e';
       try {
         const res = await fetch('/setup-topology', { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
-          status.textContent = 'Topology ready ✓';
+          const agents  = (data.body?.agents  || []).join(', ') || '—';
+          const cortex  = (data.body?.cortex  || []).join(', ') || '—';
+          status.textContent = `Deployed ✓ agents:[${agents}] cortex:[${cortex}]`;
           status.style.color = '#3fb950';
         } else {
-          status.textContent = `${data.errors.length} error(s) — check console`;
+          const msg = data.body?.error || data.body?.detail || JSON.stringify(data.body);
+          status.textContent = `Deploy failed: ${msg}`;
           status.style.color = '#f85149';
-          console.error(data.errors);
+          console.error('[topology]', data);
         }
-        console.log('[topology]', data.log.join('\n'));
       } catch (e) {
         status.textContent = 'Error: ' + e.message;
         status.style.color = '#f85149';
       } finally {
         btn.disabled = false;
-        setTimeout(() => { status.textContent = ''; }, 4000);
+        setTimeout(() => { status.textContent = ''; }, 6000);
       }
     }
 

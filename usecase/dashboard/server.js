@@ -2,13 +2,16 @@ const express = require('express');
 const path = require('path');
 const { sqsClient, getQueueUrl } = require('@sentinel/shared');
 const { resetSentinel, USECASE_QUEUES } = require('@sentinel/shared/reset');
-const { setupTopology } = require('@sentinel/shared/topology');
+const { deployWithRetry } = require('@sentinel/shared/sentinel-cp');
 const { PurgeQueueCommand } = require('@aws-sdk/client-sqs');
 const { ReceiveMessageCommand } = require('@aws-sdk/client-sqs');
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+const SENTINEL_CONFIG_PATH = process.env.SENTINEL_CONFIG_PATH
+  || path.resolve(__dirname, '..', 'sentinel.json');
 
 const QUEUES = ['sqs01', 'sqs02', 'sqs03', 'sqs04', 'sqs05'];
 
@@ -36,7 +39,6 @@ async function pollAppLog(appDef) {
     const newEntries = lastTs ? entries.filter(e => e.timestamp > lastTs) : entries;
     if (!newEntries.length) return;
 
-    // newEntries is newest-first; push newest to front of buffer
     buf.unshift(...newEntries);
     if (buf.length > BUFFER_MAX) buf.splice(BUFFER_MAX);
     appLastTimestamp[appDef.id] = buf[0].timestamp;
@@ -44,6 +46,18 @@ async function pollAppLog(appDef) {
 }
 
 setInterval(() => APPS.forEach(pollAppLog), 1000);
+
+// ── Deploy topology to Sentinel on startup ──────────────────────────────────
+deployWithRetry(SENTINEL_CONFIG_PATH)
+  .then(result => {
+    if (result.ok) {
+      console.log('[sentinel-cp] topology deployed:', JSON.stringify(result.body));
+    } else {
+      console.error('[sentinel-cp] topology deploy failed:', JSON.stringify(result.body));
+    }
+  });
+
+// ── Routes ──────────────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -173,7 +187,7 @@ app.post('/reset', async (req, res) => {
 });
 
 app.post('/setup-topology', async (req, res) => {
-  const result = await setupTopology();
+  const result = await deployWithRetry(SENTINEL_CONFIG_PATH, { maxRetries: 3, retryMs: 1000 });
   res.status(result.ok ? 200 : 500).json(result);
 });
 
