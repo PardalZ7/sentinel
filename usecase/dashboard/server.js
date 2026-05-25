@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const { sqsClient, getQueueUrl } = require('@sentinel/shared');
 const { resetSentinel, USECASE_QUEUES } = require('@sentinel/shared/reset');
+const { setupTopology } = require('@sentinel/shared/topology');
 const { PurgeQueueCommand } = require('@aws-sdk/client-sqs');
 const { ReceiveMessageCommand } = require('@aws-sdk/client-sqs');
 
@@ -168,6 +169,11 @@ app.post('/purge-usecase-queues', async (req, res) => {
 
 app.post('/reset', async (req, res) => {
   const result = await resetSentinel();
+  res.status(result.ok ? 200 : 500).json(result);
+});
+
+app.post('/setup-topology', async (req, res) => {
+  const result = await setupTopology();
   res.status(result.ok ? 200 : 500).json(result);
 });
 

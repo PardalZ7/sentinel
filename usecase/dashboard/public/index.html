@@ -129,6 +129,17 @@
     .btn-purge:hover { background: #6e5500; color: #fff; }
     .btn-purge:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    .btn-topology {
+      background: #0d2a1a;
+      color: #3fb950;
+      border-color: #1f6b3a;
+      font-weight: 600;
+      font-size: 12px;
+      padding: 5px 12px;
+    }
+    .btn-topology:hover { background: #1f6b3a; color: #fff; }
+    .btn-topology:disabled { opacity: 0.5; cursor: not-allowed; }
+
     /* App Controls */
     .app-tabs {
       display: flex;
@@ -305,7 +316,8 @@
   <header>
     <h1>Sentinel</h1>
     <span class="subtitle">Pipeline Monitor &amp; Control</span>
-    <button class="btn-purge" id="purge-btn" onclick="purgeUsecaseQueues()" style="margin-left:auto;">⟳ Purge Queues</button>
+    <button class="btn-topology" id="topology-btn" onclick="generateTopology()" style="margin-left:auto;">⬡ Generate Topology</button>
+    <button class="btn-purge" id="purge-btn" onclick="purgeUsecaseQueues()">⟳ Purge Queues</button>
     <button class="btn-reset" id="reset-btn" onclick="resetAll()">⚠ Reset Sentinel</button>
     <span id="reset-status" style="font-size:12px;color:#8b949e;"></span>
   </header>
@@ -669,6 +681,35 @@
       } finally {
         btn.disabled = false;
         setTimeout(() => { status.textContent = ''; }, 3000);
+      }
+    }
+
+    // ── Generate Topology ─────────────────────────────────────────────────────
+
+    async function generateTopology() {
+      const btn = document.getElementById('topology-btn');
+      const status = document.getElementById('reset-status');
+      btn.disabled = true;
+      status.textContent = 'Creating topology…';
+      status.style.color = '#8b949e';
+      try {
+        const res = await fetch('/setup-topology', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          status.textContent = 'Topology ready ✓';
+          status.style.color = '#3fb950';
+        } else {
+          status.textContent = `${data.errors.length} error(s) — check console`;
+          status.style.color = '#f85149';
+          console.error(data.errors);
+        }
+        console.log('[topology]', data.log.join('\n'));
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.style.color = '#f85149';
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => { status.textContent = ''; }, 4000);
       }
     }
 
