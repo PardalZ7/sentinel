@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+.git
+*.md
+docker-compose.yml
+usecase/infra
+sentinel/.venv
+sentinel/**/__pycache__
+sentinel/**/*.pyc
+sentinel/.pytest_cache
+sentinel/tests
