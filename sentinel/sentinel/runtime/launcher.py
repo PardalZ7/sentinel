@@ -19,35 +19,26 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sentinel.adapters.alerting.sns_timeout_notifier import SnsTimeoutNotifier
-from sentinel.adapters.grpc.client import GrpcReporter
-from sentinel.adapters.grpc.generated.correlated_pair_pb2 import CorrelatedPairProto
-from sentinel.adapters.grpc.server import create_server, start_server
-from sentinel.adapters.model_store.disk_store import DiskModelStore
-from sentinel.adapters.queue.sqs_pair_publisher import SqsPairPublisher
-from sentinel.adapters.reporting.dashboard_reporter import DashboardReporter
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from sentinel.adapters.store.redis_store import RedisCorrelationStore
 from sentinel.adapters.transport.sqs_sns import SqsSnsTransport
-from sentinel.agent.detectors.factory import create_detector
-from sentinel.agent.use_cases.process_message import AgentState, process_pair
-from sentinel.agent.use_cases.set_phase import set_phase
 from sentinel.config.schema import AgentConfig, CorrelationEngineConfig, CortexConfig, DetectorConfig, SentinelConfig
-from sentinel.domain.models import CorrelatedPair
-from sentinel.cortex.use_cases.aggregate import AgentStateVector, build_feature_matrix, check_silence, update_state
-from sentinel.cortex.use_cases.adaptation import AdaptationContext, IAdaptationStrategy, create_strategy
-from sentinel.cortex.use_cases.autoencoder import SentinelAutoencoder, create_autoencoder, train_autoencoder
-from sentinel.cortex.use_cases.causal_chain import add_event
-from sentinel.cortex.use_cases.group_buffer import (
-    build_grouped_event,
-    delete_group,
-    is_complete,
-    record_source_event,
-)
-from sentinel.dashboard.state import DashboardState
-from sentinel.domain.models import Alert, AlertSeverity, AlertType, HeartbeatEvent, ModelPhase
+from sentinel.domain.models import Alert, AlertSeverity, AlertType, CorrelatedPair, HeartbeatEvent, ModelPhase
 from sentinel.domain.ports.detector import DetectorState, IDetector
 from sentinel.domain.ports.reporter import IReporter
 from sentinel.logging.logger import get_logger
+
+if TYPE_CHECKING:
+    from sentinel.adapters.grpc.client import GrpcReporter
+    from sentinel.adapters.model_store.disk_store import DiskModelStore
+    from sentinel.agent.use_cases.process_message import AgentState
+    from sentinel.cortex.use_cases.aggregate import AgentStateVector
+    from sentinel.cortex.use_cases.adaptation import AdaptationContext, IAdaptationStrategy
+    from sentinel.cortex.use_cases.autoencoder import SentinelAutoencoder
+    from sentinel.dashboard.state import DashboardState
 
 logger = get_logger(__name__)
 
@@ -76,7 +67,7 @@ def _synthesise_detector_configs(
     ]
 
 
-def _proto_to_pair(proto: CorrelatedPairProto) -> CorrelatedPair:
+def _proto_to_pair(proto) -> CorrelatedPair:
     """Deserialize a CorrelatedPairProto into a domain CorrelatedPair."""
     import json as _json
     from datetime import timezone as _tz
@@ -284,6 +275,7 @@ class AgentRunner:
         if not hex_data:
             logger.warning("pairs_queue_invalid_body", agent=self.agent_config.name)
             return None
+        from sentinel.adapters.grpc.generated.correlated_pair_pb2 import CorrelatedPairProto
         proto = CorrelatedPairProto()
         proto.ParseFromString(bytes.fromhex(hex_data))
         return _proto_to_pair(proto)
@@ -291,6 +283,7 @@ class AgentRunner:
     async def _run_pairs_loop(self) -> None:
         _training_tasks: dict[str, asyncio.Task] = {}
 
+        from sentinel.agent.use_cases.process_message import process_pair
         async for raw_message in self.pairs_transport.receive():
             try:
                 pair = self._decode_pair(raw_message.body)
@@ -345,6 +338,7 @@ class AgentRunner:
         self, new_phase: str, detector_name: str | None = None
     ) -> None:
         """Change phase for a specific detector or all detectors if detector_name is None."""
+        from sentinel.agent.use_cases.set_phase import set_phase
         phase = ModelPhase(new_phase)
         self.state = set_phase(self.state, phase, detector_name)
         # Force send_all_events when entering TRAINING so Cortex receives all data
@@ -451,6 +445,8 @@ class CortexRunner:
         return True
 
     async def _accumulate_training_sample(self):
+        from sentinel.cortex.use_cases.aggregate import build_feature_matrix
+
         # INFERENCE: always build and return the current sample for scoring.
         if self.phase == ModelPhase.INFERENCE:
             matrix = build_feature_matrix(self.state_vectors)
@@ -537,6 +533,7 @@ class CortexRunner:
         import numpy as np
         samples = np.array(self.training_buffer, dtype=np.float32)
         input_dim = samples.shape[1]
+        from sentinel.cortex.use_cases.autoencoder import create_autoencoder, train_autoencoder
         model = create_autoencoder(input_dim=input_dim, hidden_dim=ae_config.hidden_dim)
         loop = asyncio.get_event_loop()
         self.autoencoder_model = await loop.run_in_executor(
@@ -568,6 +565,7 @@ class CortexRunner:
                 )
 
     def _activate_strategy(self) -> None:
+        from sentinel.cortex.use_cases.adaptation import AdaptationContext, create_strategy
         ae_config = self.sentinel_config.model.autoencoder
         self._strategy = create_strategy(
             mode=self.cortex_config.adaptation_mode,
@@ -689,12 +687,15 @@ class CortexRunner:
                 input_size_bytes=proto_event.input_size_bytes,
                 output_size_bytes=proto_event.output_size_bytes,
             )
+            from sentinel.cortex.use_cases.aggregate import update_state, check_silence
+            from sentinel.cortex.use_cases.causal_chain import add_event
             self.state_vectors = update_state(self.state_vectors, event)
             if self.phase == ModelPhase.INFERENCE:
                 add_event(self.causal_window, event)
             await self._handle_grouping(event)
 
         elif isinstance(proto_event, sentinel_pb2.HeartbeatProto):
+            from sentinel.cortex.use_cases.aggregate import update_state, check_silence
             input_phase = (
                 ModelPhase(proto_event.model_phase)
                 if proto_event.model_phase
@@ -746,6 +747,9 @@ class CortexRunner:
             return
 
         try:
+            from sentinel.cortex.use_cases.group_buffer import (
+                record_source_event, is_complete, build_grouped_event, delete_group,
+            )
             group = await record_source_event(
                 store=self._correlation_store,
                 cortex_name=self.cortex_config.name,
@@ -837,6 +841,7 @@ class CortexRunner:
                             created = group.get("_created_at_ms", now_ms)
                             age_s = (now_ms - created) / 1000
                             if age_s >= self._grouping_ttl_s:
+                                from sentinel.cortex.use_cases.group_buffer import build_grouped_event
                                 cid = key.split(":", 3)[-1]
                                 grouped = build_grouped_event(
                                     group, self.cortex_config.name, cid, expected
@@ -866,6 +871,7 @@ class CortexRunner:
     async def run(self) -> None:
         if self._model_store is not None:
             try:
+                from sentinel.cortex.use_cases.autoencoder import create_autoencoder
                 ae_config = self.sentinel_config.model.autoencoder
 
                 def _factory():
@@ -897,6 +903,7 @@ class CortexRunner:
                 run_test_cb=self.run_test,
             )
 
+        from sentinel.adapters.grpc.server import create_server, start_server
         server = create_server(
             host="0.0.0.0",
             port=self.cortex_config.grpc_port,
@@ -920,6 +927,8 @@ class _MultiReporter(IReporter):
 
 
 def _build_base_reporter(agent_config: AgentConfig) -> IReporter:
+    from sentinel.adapters.grpc.client import GrpcReporter
+
     if not agent_config.cortex:
         class _StandaloneReporter(IReporter):
             async def publish_event(self, event):
@@ -942,6 +951,8 @@ def build_correlation_engine(
 ) -> "CorrelationEngineRunner":
     """Wire up all dependencies for a CorrelationEngineRunner."""
     from sentinel.runtime.correlation_engine_runner import CorrelationEngineRunner
+    from sentinel.adapters.queue.sqs_pair_publisher import SqsPairPublisher
+    from sentinel.adapters.alerting.sns_timeout_notifier import SnsTimeoutNotifier
 
     endpoint = sentinel_config.aws.endpoint_url
     region = sentinel_config.aws.region
@@ -999,6 +1010,12 @@ def build_agent(
     dashboard_state: DashboardState | None = None,
 ) -> AgentRunner:
     """Wire up all dependencies for an AgentRunner."""
+    from sentinel.adapters.model_store.disk_store import DiskModelStore
+    from sentinel.adapters.reporting.dashboard_reporter import DashboardReporter
+    from sentinel.agent.detectors.factory import create_detector
+    from sentinel.agent.use_cases.process_message import AgentState
+    from sentinel.agent.use_cases.set_phase import set_phase  # noqa: F401
+
     storage_path = Path(sentinel_config.storage_path).expanduser()
 
     model_store = DiskModelStore(
@@ -1083,6 +1100,9 @@ def build_cortex(
     sentinel_config: SentinelConfig,
     dashboard_state: DashboardState | None = None,
 ) -> CortexRunner:
+    from sentinel.adapters.grpc.client import GrpcReporter
+    from sentinel.adapters.model_store.disk_store import DiskModelStore
+
     parent_reporters = [
         GrpcReporter(host=ref.host, port=ref.port)
         for ref in cortex_config.parent_cortex
