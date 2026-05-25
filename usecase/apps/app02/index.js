@@ -80,7 +80,7 @@ async function consumeLoop() {
         }));
       }));
     } catch (err) {
-      console.error(`[APP02] consumer error: ${err.message}`);
+      console.error(`[APP02] consumer error: ${err?.message || String(err)}`);
       await new Promise(r => setTimeout(r, 1000));
     }
   }

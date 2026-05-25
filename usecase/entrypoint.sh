@@ -25,5 +25,11 @@ node /app/apps/app03/index.js &
 node /app/apps/app04/index.js &
 node /app/dashboard/server.js &
 
-# Start sentinel engines (foreground — keeps container alive)
+# Register topology with sentinel control plane, then start engines (foreground)
+# Retry until the sentinel server is reachable (it may still be booting)
+until sentinel deploy --sentinel-url "${SENTINEL_URL}" --no-engines 2>&1; do
+    echo "[entrypoint] sentinel deploy failed, retrying in 3s..."
+    sleep 3
+done
+
 exec sentinel start --config sentinel.json --mode engine

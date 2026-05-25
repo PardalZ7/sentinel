@@ -1,0 +1,15 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: sqs,sns
+      DEFAULT_REGION: us-east-1
+    volumes:
+      - ./scripts/setup_local_queues.sh:/etc/localstack/init/ready.d/setup_queues.sh

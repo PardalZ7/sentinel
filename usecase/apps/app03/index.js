@@ -88,7 +88,7 @@ function resetFlushTimer(queueUrl) {
   flushTimer = setTimeout(async () => {
     if (buffer.length > 0) {
       console.warn(`[APP03] flush timer: publishing incomplete batch of ${buffer.length} records`);
-      try { await flushBuffer(queueUrl); } catch (e) { console.error(`[APP03] flush error: ${e.message}`); }
+      try { await flushBuffer(queueUrl); } catch (e) { console.error(`[APP03] flush error: ${e?.message || String(e)}`); }
     }
   }, BATCH_FLUSH_TIMEOUT_MS);
 }
@@ -122,7 +122,7 @@ async function consumeLoop() {
         }
       }
     } catch (err) {
-      console.error(`[APP03] consumer error: ${err.message}`);
+      console.error(`[APP03] consumer error: ${err?.message || String(err)}`);
       await new Promise(r => setTimeout(r, 1000));
     }
   }

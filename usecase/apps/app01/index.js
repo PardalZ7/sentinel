@@ -51,7 +51,7 @@ async function produce() {
     addLog({ timestamp: new Date().toISOString(), output: msg });
     console.log(`[APP01] output: ${JSON.stringify(msg)}`);
   } catch (err) {
-    console.error(`[APP01] publish error: ${err.message}`);
+    console.error(`[APP01] publish error: ${err?.message || String(err)}`);
   }
 }
 

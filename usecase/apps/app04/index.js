@@ -75,7 +75,7 @@ async function consumeLoop() {
         }));
       }));
     } catch (err) {
-      console.error(`[APP04] consumer error: ${err.message}`);
+      console.error(`[APP04] consumer error: ${err?.message || String(err)}`);
       await new Promise(r => setTimeout(r, 1000));
     }
   }
