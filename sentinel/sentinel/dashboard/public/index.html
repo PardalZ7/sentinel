@@ -898,9 +898,9 @@ function applyDetectorUpdate(d) {
   if (!ag.detectors) ag.detectors = [];
   const idx = ag.detectors.findIndex(det => det.name === d.detector);
   if (idx >= 0) {
-    ag.detectors[idx] = { ...ag.detectors[idx], ...d };
+    ag.detectors[idx] = { ...ag.detectors[idx], ...d, name: d.detector };
   } else {
-    ag.detectors.push(d);
+    ag.detectors.push({ ...d, name: d.detector });
   }
   _renderDetectorRows(d.agent);
   if (activeTestModal && activeTestModal.type === 'agent' && activeTestModal.name === d.agent) {
@@ -2116,11 +2116,34 @@ function closeDetectorModalOnOverlay(e) {
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────
+function loadInitialState() {
+  return fetch('/api/status')
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data) return;
+      Object.entries(data.agents || {}).forEach(([name, ag]) => {
+        state.agents[name] = { ...mkAgent(name), ...ag };
+        // Ensure each detector has a proper name field
+        if (state.agents[name].detectors) {
+          state.agents[name].detectors = state.agents[name].detectors.map(d => ({
+            ...d,
+            name: d.name || d.detector,
+          }));
+        }
+      });
+      Object.entries(data.cortex || {}).forEach(([name, cx]) => {
+        state.cortex[name] = { ...mkCortex(name), ...cx };
+      });
+      renderAll();
+    })
+    .catch(() => {});
+}
+
 fetch('/api/config')
   .then(r => r.ok ? r.json() : null)
   .then(cfg => { if (cfg) sentinelConfig = cfg; })
   .catch(() => {})
-  .finally(() => connect());
+  .finally(() => loadInitialState().finally(() => connect()));
 </script>
 </body>
 </html>
