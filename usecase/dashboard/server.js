@@ -191,4 +191,5 @@ app.post('/setup-topology', async (req, res) => {
   res.status(result.ok ? 200 : 500).json(result);
 });
 
-app.listen(3000, () => console.log('[DASHBOARD] server listening on port 3000'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`[DASHBOARD] server listening on port ${PORT}`));
