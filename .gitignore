@@ -29,6 +29,7 @@ npm-debug.log*
 # Env / secrets
 .env
 *.env
+.env.*
 sentinel.json
 
 # OS
