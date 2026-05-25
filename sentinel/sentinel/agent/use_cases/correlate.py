@@ -45,12 +45,12 @@ async def store_request(
     message: RawMessage,
 ) -> str | None:
     """Persist an input message under its correlation ID. Returns the ID or None."""
-    correlation_id = extract_correlation_id(message.body, config.correlation_field)
+    correlation_id = extract_correlation_id(message.body, config.effective_input_field)
     if not correlation_id:
         logger.warning(
             "missing_correlation_id_on_input",
             engine=config.name,
-            field=config.correlation_field,
+            field=config.effective_input_field,
         )
         return None
 
@@ -74,12 +74,12 @@ async def resolve_pair(
     Handles normal and splitting modes. For grouping mode use resolve_pairs().
     Key is deleted after match in normal mode; kept alive via TTL in splitting mode.
     """
-    correlation_id = extract_correlation_id(message.body, config.correlation_field)
+    correlation_id = extract_correlation_id(message.body, config.effective_output_field)
     if not correlation_id:
         logger.warning(
             "missing_correlation_id_on_output",
             engine=config.name,
-            field=config.correlation_field,
+            field=config.effective_output_field,
         )
         return None
 
@@ -102,12 +102,12 @@ async def resolve_pairs(
     The output body must contain a list of correlation IDs at config.correlation_field.
     Each ID is resolved independently and the key is deleted after match.
     """
-    ids = extract_correlation_ids(message.body, config.correlation_field)
+    ids = extract_correlation_ids(message.body, config.effective_output_field)
     if not ids:
         logger.warning(
             "missing_correlation_ids_on_output",
             engine=config.name,
-            field=config.correlation_field,
+            field=config.effective_output_field,
         )
         return []
 

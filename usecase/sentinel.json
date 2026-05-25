@@ -59,6 +59,7 @@
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-out" },
         "correlation_field": "correlationId",
+        "output_correlation_field": "records.correlationId",
         "correlation_mode": "grouping",
         "correlation_ttl_s": 1800,
         "destinations": [
@@ -71,6 +72,7 @@
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out" },
         "correlation_field": "correlationId",
+        "output_correlation_field": "records.correlationId",
         "correlation_mode": "grouping",
         "correlation_ttl_s": 180,
         "destinations": [
@@ -83,6 +85,7 @@
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-out" },
         "correlation_field": "correlationId",
+        "output_correlation_field": "records.correlationId",
         "correlation_mode": "grouping",
         "correlation_ttl_s": 600,
         "destinations": [

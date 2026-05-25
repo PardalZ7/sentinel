@@ -182,10 +182,20 @@ class CorrelationEngineConfig(BaseModel):
     input: TransportResourceConfig = Field(default_factory=TransportResourceConfig)
     output: TransportResourceConfig = Field(default_factory=TransportResourceConfig)
     correlation_field: str = "correlationId"
+    input_correlation_field: str | None = None
+    output_correlation_field: str | None = None
     correlation_mode: Literal["normal", "grouping", "splitting"] = "normal"
     correlation_ttl_s: int = 300
     destinations: list[TransportResourceConfig] = Field(default_factory=list)
     timeout_topic_arn: str | None = None
+
+    @property
+    def effective_input_field(self) -> str:
+        return self.input_correlation_field or self.correlation_field
+
+    @property
+    def effective_output_field(self) -> str:
+        return self.output_correlation_field or self.correlation_field
 
 
 class AgentConfig(BaseModel):
