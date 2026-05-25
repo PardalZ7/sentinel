@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Install Python sentinel package — pinned to commit so cache is never stale
 RUN pip install --no-cache-dir \
-    "sentinel[engine] @ git+https://github.com/PardalZ7/sentinel.git@e84038dd8924ff042499d6909ee43b8edfa4712c#subdirectory=sentinel"
+    "sentinel[engine] @ git+https://github.com/PardalZ7/sentinel.git@09d983450909f636ca0156b35c975ec41a1350c1#subdirectory=sentinel"
 
 # Install Node dependencies (workspace)
 COPY package.json ./
