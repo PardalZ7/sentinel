@@ -1171,7 +1171,13 @@ async def launch(
 
     tasks = []
 
-    if run_engines:
+    # When control_plane is enabled, all topology components (engines, agents,
+    # cortex) are managed exclusively by TopologyManager — either restored from
+    # disk on restart or deployed via PUT /cp/topologies/{id}. Starting them
+    # statically here would duplicate runners and cause port conflicts on cortex.
+    cp_enabled = config.control_plane.enabled
+
+    if run_engines and not cp_enabled:
         for engine_config in config.correlation_engines:
             runner = build_correlation_engine(engine_config, config)
             tasks.append(asyncio.create_task(runner.run(), name=f"engine-{engine_config.name}"))
@@ -1184,13 +1190,14 @@ async def launch(
         topology_manager = TopologyManager(config, ds)
         await topology_manager.restore_from_store(topology_store)
 
-        for agent_config in config.agents:
-            runner = build_agent(agent_config, config, ds)
-            tasks.append(asyncio.create_task(runner.run(), name=f"agent-{agent_config.name}"))
+        if not cp_enabled:
+            for agent_config in config.agents:
+                runner = build_agent(agent_config, config, ds)
+                tasks.append(asyncio.create_task(runner.run(), name=f"agent-{agent_config.name}"))
 
-        for cortex_config in config.cortex:
-            runner = build_cortex(cortex_config, config, ds)
-            tasks.append(asyncio.create_task(runner.run(), name=f"cortex-{cortex_config.name}"))
+            for cortex_config in config.cortex:
+                runner = build_cortex(cortex_config, config, ds)
+                tasks.append(asyncio.create_task(runner.run(), name=f"cortex-{cortex_config.name}"))
 
         if config.dashboard.enabled and ds is not None:
             from sentinel.dashboard.server import start_dashboard

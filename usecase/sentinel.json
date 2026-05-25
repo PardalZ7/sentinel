@@ -46,7 +46,7 @@
 
     "correlation_engines": [
       {
-        "_comment": "engine01 — APP02 enricher (1:1, 180s). Correlates by correlationId, normal mode (delete key on match). Publishes CorrelatedPairs to agent01's pairs queue.",
+        "_comment": "engine01 — APP02 enricher (1:1, 180s). Normal mode: correlates individual input→output by correlationId.",
         "name": "engine01",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-out" },
@@ -58,7 +58,7 @@
         ]
       },
       {
-        "_comment": "engine02 — APP03 batcher (N:1, 1800s). Grouping mode: multiple inputs share one output batch. correlationId on inputs, records[*].correlationId on the batch output groups them. Publishes to agent02's pairs queue.",
+        "_comment": "engine02 — APP03 batcher (N:1, 1800s). Grouping: multiple APP02 inputs → one APP03 batch output (records[*].correlationId).",
         "name": "engine02",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-out" },
@@ -71,25 +71,27 @@
         ]
       },
       {
-        "_comment": "engine03 — APP04 validator (N:1, 180s). Grouping mode: multiple APP02 enriched inputs (by correlationId) are correlated with the APP04 batch output (records[*].correlationId). Publishes to agent03.",
+        "_comment": "engine03 — APP04 validator (N:1, 600s). Grouping: APP02 inputs correlated with APP04 batch output (records[*].correlationId + valid).",
         "name": "engine03",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out" },
         "correlation_field": "correlationId",
-        "correlation_mode": "normal",
-        "correlation_ttl_s": 180,
+        "output_correlation_field": "records.correlationId",
+        "correlation_mode": "grouping",
+        "correlation_ttl_s": 600,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" }
         ]
       },
       {
-        "_comment": "engine04 — full end-to-end pipeline (N:1, 600s). Grouping mode: correlates APP01 raw inputs (by correlationId) with the final APP04 batch output (records[*].correlationId). Longest TTL to cover the full pipeline duration.",
+        "_comment": "engine04 — full pipeline (N:1, 900s). Grouping: APP01 raw inputs correlated with APP04 batch output (records[*].correlationId).",
         "name": "engine04",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-out" },
         "correlation_field": "correlationId",
-        "correlation_mode": "normal",
-        "correlation_ttl_s": 600,
+        "output_correlation_field": "records.correlationId",
+        "correlation_mode": "grouping",
+        "correlation_ttl_s": 900,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" }
         ]
@@ -98,7 +100,7 @@
 
     "agents": [
       {
-        "_comment": "agent01 — APP02 enricher. Detectors: IF for operational anomalies (latency/size/schema); cVAE to detect when output fields are semantically inconsistent with input (e.g. wrong sum, missing fields).",
+        "_comment": "agent01 — APP02 enricher. IF: operational baseline; cVAE: semantic consistency of output vs input.",
         "name": "agent01",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-pairs" },
         "test_buffer_size": 150,
@@ -109,7 +111,6 @@
         },
         "detectors": [
           {
-            "_comment": "Operational baseline: learns latency, payload sizes, schema hash. Fast to converge, catches infrastructure-level anomalies.",
             "name": "if_baseline",
             "algorithm": "isolation_forest",
             "phase": "TRAINING",
@@ -121,7 +122,6 @@
             "auto_infer_fp_threshold": 0.05
           },
           {
-            "_comment": "Semantic detector: learns P(result, stringSize | value01, value02, len(somestring)). Detects when the enrichment output is inconsistent with its input.",
             "name": "cvae_enrichment",
             "algorithm": "cvae",
             "phase": "TRAINING",
@@ -143,20 +143,17 @@
         ]
       },
       {
-        "_comment": "agent02 — APP03 batcher (N:1). Detectors: IF for operational features of the batch output; MAF to learn the joint distribution of batch-level metrics.",
+        "_comment": "agent02 — APP03 batcher. IF: operational batch stats; MAF: joint distribution of batch metrics.",
         "name": "agent02",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-pairs" },
         "test_buffer_size": 150,
-        "cortex": [
-          { "host": "localhost", "port": 50051 }
-        ],
+        "cortex": [{ "host": "localhost", "port": 50051 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
         },
         "detectors": [
           {
-            "_comment": "Operational baseline for batch output: latency from first input to batch output, total payload size.",
             "name": "if_batch_stats",
             "algorithm": "isolation_forest",
             "phase": "TRAINING",
@@ -168,7 +165,6 @@
             "auto_infer_fp_threshold": 0.08
           },
           {
-            "_comment": "Joint distribution model: learns -log_likelihood over all numeric fields in the batch event. Flags events where the combination of metrics is anomalous even if individual metrics look normal.",
             "name": "maf_joint",
             "algorithm": "maf",
             "phase": "TRAINING",
@@ -183,7 +179,7 @@
         ]
       },
       {
-        "_comment": "agent03 — APP04 validator (1:1). Detectors: IF for operational anomalies; cVAE to detect when validated output is inconsistent with enriched input.",
+        "_comment": "agent03 — APP04 validator. IF: operational baseline; cVAE: validated output consistent with enriched input.",
         "name": "agent03",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" },
         "test_buffer_size": 150,
@@ -197,7 +193,6 @@
         },
         "detectors": [
           {
-            "_comment": "Operational baseline for the validator step.",
             "name": "if_latency",
             "algorithm": "isolation_forest",
             "phase": "TRAINING",
@@ -209,7 +204,6 @@
             "auto_infer_fp_threshold": 0.05
           },
           {
-            "_comment": "Semantic validator: learns P(validationStatus | value01, value02, result, stringSize). Detects when validation outcome does not match historical patterns.",
             "name": "cvae_validation",
             "algorithm": "cvae",
             "phase": "TRAINING",
@@ -231,7 +225,7 @@
         ]
       },
       {
-        "_comment": "agent04 — full end-to-end pipeline (1:1). Detectors: IF for end-to-end latency and size; MAF to learn the joint distribution of all metrics across the complete pipeline.",
+        "_comment": "agent04 — full pipeline. IF: end-to-end latency/size; MAF: joint distribution across complete lifecycle.",
         "name": "agent04",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" },
         "test_buffer_size": 100,
@@ -245,7 +239,6 @@
         },
         "detectors": [
           {
-            "_comment": "End-to-end operational baseline: total pipeline latency, input and output sizes.",
             "name": "if_e2e",
             "algorithm": "isolation_forest",
             "phase": "TRAINING",
@@ -257,7 +250,6 @@
             "auto_infer_fp_threshold": 0.08
           },
           {
-            "_comment": "Full-pipeline joint distribution: learns P(all numeric fields) across the complete message lifecycle. Flags multivariate combinations that no single detector catches individually.",
             "name": "maf_e2e",
             "algorithm": "maf",
             "phase": "TRAINING",
@@ -275,7 +267,7 @@
 
     "cortex": [
       {
-        "_comment": "cortex11 — sectoral cortex. Monitors agent01 (enricher), agent02 (batcher), agent03 (validator). Detects cascades between enrichment and downstream processing.",
+        "_comment": "cortex11 — monitors agent01/02/03. Detects cascades between enrichment and downstream.",
         "name": "cortex11",
         "grpc_port": 50051,
         "inputs": ["agent01", "agent02", "agent03"],
@@ -293,7 +285,7 @@
         }
       },
       {
-        "_comment": "cortex12 — sectoral cortex. Monitors agent03 (validator) and agent04 (full pipeline). Detects anomalies in the validation and end-to-end segments.",
+        "_comment": "cortex12 — monitors agent03/04. Detects anomalies in validation and end-to-end segments.",
         "name": "cortex12",
         "grpc_port": 50052,
         "inputs": ["agent03", "agent04"],
@@ -311,7 +303,7 @@
         }
       },
       {
-        "_comment": "cortex21 — top-level cortex. Monitors agent04 (full pipeline) and cortex11/cortex12 (sectorais). Systemic view: correlates end-to-end anomalies with sectoral ones. EMA conservative — sparse signal from other cortex nodes.",
+        "_comment": "cortex21 — top-level. Monitors agent04 + cortex11/12. Systemic view.",
         "name": "cortex21",
         "grpc_port": 50053,
         "inputs": ["agent04", "cortex11", "cortex12"],
