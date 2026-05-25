@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 engine = [
     "redis>=5.0",
+    "protobuf>=4.25",
 ]
 agent = [
     "redis>=5.0",
