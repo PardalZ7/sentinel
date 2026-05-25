@@ -1,27 +1,27 @@
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl \
+    curl \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python sentinel package — pinned to commit so cache is never stale
-RUN pip install --no-cache-dir \
-    "sentinel[engine] @ git+https://github.com/PardalZ7/sentinel.git@517de5c3f62e31b4ba0c62ec18315da139a93e26#subdirectory=sentinel"
+# Install sentinel from local source (build context must be repo root)
+COPY sentinel/ /sentinel/
+RUN pip install --no-cache-dir "/sentinel[engine]"
 
 # Install Node dependencies (workspace)
-COPY package.json ./
-COPY shared/ ./shared/
-COPY apps/ ./apps/
-COPY dashboard/ ./dashboard/
+COPY usecase/package.json ./
+COPY usecase/shared/ ./shared/
+COPY usecase/apps/ ./apps/
+COPY usecase/dashboard/ ./dashboard/
 RUN npm install --workspaces --include-workspace-root
 
 # Copy sentinel config and entrypoint
-COPY sentinel.json .
-COPY entrypoint.sh .
+COPY usecase/sentinel.json .
+COPY usecase/entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
 EXPOSE 3000
