@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import asyncio
 import random
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from sentinel.adapters.store.redis_store import RedisCorrelationStore
 from sentinel.adapters.transport.sqs_sns import SqsSnsTransport
