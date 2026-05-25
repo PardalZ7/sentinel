@@ -22,6 +22,7 @@ class RedisConfig(BaseModel):
     port: int = 6379
     db: int = 0
     password: str | None = None
+    password: str | None = None
 
 
 class AwsConfig(BaseModel):
