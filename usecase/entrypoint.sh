@@ -23,10 +23,8 @@ node /app/apps/app01/index.js &
 node /app/apps/app02/index.js &
 node /app/apps/app03/index.js &
 node /app/apps/app04/index.js &
-node /app/dashboard/server.js &
 
 # Register topology with sentinel control plane in background (non-blocking).
-# Engines start regardless; the deploy only updates the control-plane view.
 if [ -n "$SENTINEL_URL" ]; then
     (
         until sentinel deploy --sentinel-url "${SENTINEL_URL}" --no-engines 2>&1; do
@@ -37,5 +35,5 @@ if [ -n "$SENTINEL_URL" ]; then
     ) &
 fi
 
-# Start correlation engines (foreground — keeps container alive)
-exec sentinel start --config sentinel.json --mode engine
+# Dashboard runs in foreground — keeps the container alive and serves PORT
+exec node /app/dashboard/server.js
