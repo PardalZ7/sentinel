@@ -119,8 +119,15 @@ class AgentRunner:
             agent=self.agent_config.name,
             detectors=list(self.state.detectors.keys()),
         )
+        async def _guarded_pairs_loop() -> None:
+            try:
+                await self._run_pairs_loop()
+            except Exception as exc:
+                logger.error("agent_pairs_loop_failed", agent=self.agent_config.name, error=str(exc), exc_info=True)
+                raise
+
         await asyncio.gather(
-            self._run_pairs_loop(),
+            _guarded_pairs_loop(),
             self._run_heartbeat_loop(),
         )
 
