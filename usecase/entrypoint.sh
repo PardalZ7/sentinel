@@ -18,13 +18,25 @@ if [ -n "$REDIS_URL" ]; then
     export SENTINEL_REDIS_PORT
 fi
 
+# Derive SQS_BASE_URL from AWS env vars so sentinel.json ${SQS_BASE_URL} resolves correctly.
+if [ -z "$SQS_BASE_URL" ]; then
+    _region="${AWS_REGION:-us-east-1}"
+    _account="${AWS_ACCOUNT_ID:-000000000000}"
+    if [ -n "$LOCALSTACK_ENDPOINT" ]; then
+        export SQS_BASE_URL="${LOCALSTACK_ENDPOINT}/${_account}"
+    else
+        export SQS_BASE_URL="https://sqs.${_region}.amazonaws.com/${_account}"
+    fi
+    echo "[entrypoint] SQS_BASE_URL derived: $SQS_BASE_URL"
+fi
+
 # Start Node apps in background
 node /app/apps/app01/index.js &
 node /app/apps/app02/index.js &
 node /app/apps/app03/index.js &
 node /app/apps/app04/index.js &
 
-# Register topology with sentinel control plane in background (non-blocking).
+# Start correlation engines. If SENTINEL_URL is set, register topology first.
 if [ -n "$SENTINEL_URL" ]; then
     (
         until sentinel deploy --sentinel-url "${SENTINEL_URL}" --no-engines 2>&1; do
@@ -33,8 +45,11 @@ if [ -n "$SENTINEL_URL" ]; then
         done
         echo "[entrypoint] topology registered with sentinel."
         echo "[entrypoint] starting correlation engines..."
-        sentinel start --config sentinel.json --mode engine
+        exec sentinel start --config sentinel.json --mode engine
     ) &
+else
+    echo "[entrypoint] SENTINEL_URL not set — starting correlation engines directly..."
+    sentinel start --config sentinel.json --mode engine &
 fi
 
 # Dashboard runs in foreground — keeps the container alive and serves PORT
