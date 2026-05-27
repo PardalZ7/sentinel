@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-# Parse REDIS_URL (redis://user:pass@host:port) into SENTINEL_ vars
+echo "[entrypoint] === starting use case container ==="
+
+# Parse REDIS_URL (redis://[user:pass@]host:port) into SENTINEL_ vars
 if [ -n "$REDIS_URL" ]; then
     rest="${REDIS_URL#redis://}"
     if [[ "$rest" == *"@"* ]]; then
@@ -16,6 +18,9 @@ if [ -n "$REDIS_URL" ]; then
     SENTINEL_REDIS_PORT="${hostport##*:}"
     export SENTINEL_REDIS_HOST
     export SENTINEL_REDIS_PORT
+    echo "[entrypoint] Redis: ${SENTINEL_REDIS_HOST}:${SENTINEL_REDIS_PORT}"
+else
+    echo "[entrypoint] WARNING: REDIS_URL not set — engines will use localhost:6379"
 fi
 
 # Derive SQS_BASE_URL from AWS env vars so sentinel.json ${SQS_BASE_URL} resolves correctly.
@@ -27,30 +32,36 @@ if [ -z "$SQS_BASE_URL" ]; then
     else
         export SQS_BASE_URL="https://sqs.${_region}.amazonaws.com/${_account}"
     fi
-    echo "[entrypoint] SQS_BASE_URL derived: $SQS_BASE_URL"
 fi
+echo "[entrypoint] SQS_BASE_URL=${SQS_BASE_URL}"
 
 # Start Node apps in background
+echo "[entrypoint] starting node apps..."
 node /app/apps/app01/index.js &
 node /app/apps/app02/index.js &
 node /app/apps/app03/index.js &
 node /app/apps/app04/index.js &
 
-# Start correlation engines. If SENTINEL_URL is set, register topology first.
+# Start correlation engines immediately — do NOT wait for topology registration.
+echo "[entrypoint] starting correlation engines (mode=engine)..."
+SENTINEL_LOG_FORMAT=pretty sentinel start --config sentinel.json --mode engine &
+ENGINE_PID=$!
+echo "[entrypoint] engines started (pid=$ENGINE_PID)"
+
+# Register topology with sentinel control plane in background (non-blocking).
 if [ -n "$SENTINEL_URL" ]; then
+    echo "[entrypoint] SENTINEL_URL=${SENTINEL_URL} — registering topology..."
     (
         until sentinel deploy --sentinel-url "${SENTINEL_URL}" --no-engines 2>&1; do
             echo "[entrypoint] sentinel deploy failed, retrying in 5s..."
             sleep 5
         done
         echo "[entrypoint] topology registered with sentinel."
-        echo "[entrypoint] starting correlation engines..."
-        exec sentinel start --config sentinel.json --mode engine
     ) &
 else
-    echo "[entrypoint] SENTINEL_URL not set — starting correlation engines directly..."
-    sentinel start --config sentinel.json --mode engine &
+    echo "[entrypoint] SENTINEL_URL not set — skipping topology registration"
 fi
 
 # Dashboard runs in foreground — keeps the container alive and serves PORT
+echo "[entrypoint] starting dashboard..."
 exec node /app/dashboard/server.js
