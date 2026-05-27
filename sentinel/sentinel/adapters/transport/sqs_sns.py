@@ -84,6 +84,8 @@ class SqsSnsTransport(ITransport):
                         AttributeNames=["SentTimestamp"],
                     )
                     messages = response.get("Messages", [])
+                    if messages:
+                        logger.info("sqs_messages_received", queue=self._input_queue_url, count=len(messages))
                     for msg in messages:
                         msg_id = msg["MessageId"]
                         self._receipt_handles[msg_id] = msg["ReceiptHandle"]
@@ -91,14 +93,16 @@ class SqsSnsTransport(ITransport):
                         try:
                             body = json.loads(raw_body_str)
                             size_bytes = len(raw_body_str)
+                            was_sns = isinstance(body, dict) and body.get("Type") == "Notification" and "Message" in body
                             # Unwrap SNS notification envelope when delivered via SQS subscription
-                            if isinstance(body, dict) and body.get("Type") == "Notification" and "Message" in body:
+                            if was_sns:
                                 inner_str = body["Message"]
                                 try:
                                     body = json.loads(inner_str)
                                     size_bytes = len(inner_str)
                                 except (json.JSONDecodeError, TypeError):
                                     pass
+                            logger.debug("sqs_message_body", queue=self._input_queue_url, sns_unwrapped=was_sns, body_keys=list(body.keys()) if isinstance(body, dict) else type(body).__name__)
                         except json.JSONDecodeError:
                             body = {"raw": raw_body_str}
                             size_bytes = len(raw_body_str)

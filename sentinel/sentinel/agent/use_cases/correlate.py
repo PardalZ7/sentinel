@@ -51,6 +51,8 @@ async def store_request(
             "missing_correlation_id_on_input",
             engine=config.name,
             field=config.effective_input_field,
+            body_keys=list(message.body.keys()) if isinstance(message.body, dict) else type(message.body).__name__,
+            body_preview=str(message.body)[:200],
         )
         return None
 

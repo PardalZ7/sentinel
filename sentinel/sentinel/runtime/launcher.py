@@ -282,9 +282,11 @@ class AgentRunner:
 
     async def _run_pairs_loop(self) -> None:
         _training_tasks: dict[str, asyncio.Task] = {}
+        logger.info("agent_pairs_polling_start", agent=self.agent_config.name, queue=self.agent_config.pairs_queue.resource)
 
         from sentinel.agent.use_cases.process_message import process_pair
         async for raw_message in self.pairs_transport.receive():
+            logger.info("agent_pairs_message_received", agent=self.agent_config.name, body_keys=list(raw_message.body.keys()) if isinstance(raw_message.body, dict) else type(raw_message.body).__name__)
             try:
                 pair = self._decode_pair(raw_message.body)
                 if pair is None:
