@@ -140,10 +140,13 @@ def deploy(config: str, sentinel_url: str, topology_id: str | None, no_engines: 
     async def _run() -> None:
         url = f"{sentinel_url.rstrip('/')}/cp/topologies/{tid}"
         click.echo(f"Deploying topology '{tid}' to {url} ...")
+        config_payload = sentinel_config.model_dump(mode="json")
+        if no_engines:
+            config_payload["correlation_engines"] = []
         async with aiohttp.ClientSession() as session:
             async with session.put(
                 url,
-                json={"config": sentinel_config.model_dump(mode="json")},
+                json={"config": config_payload},
                 headers={"Content-Type": "application/json"},
             ) as resp:
                 if resp.status not in (200, 201):
