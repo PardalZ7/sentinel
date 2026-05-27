@@ -1189,7 +1189,7 @@ async def launch(
         from sentinel.runtime.topology_store import TopologyStore
 
         topology_store = TopologyStore(config.storage_path)
-        topology_manager = TopologyManager(config, ds)
+        topology_manager = TopologyManager(config, ds, engines_enabled=run_engines)
         await topology_manager.restore_from_store(topology_store)
 
         if not cp_enabled:

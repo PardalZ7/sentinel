@@ -28,9 +28,11 @@ class TopologyManager:
         self,
         base_config: SentinelConfig,
         dashboard_state,  # DashboardState | None — avoid circular import
+        engines_enabled: bool = True,
     ) -> None:
         self._base_config = base_config
         self._dashboard_state = dashboard_state
+        self._engines_enabled = engines_enabled
         self._topologies: dict[str, _Topology] = {}
 
     async def apply(self, topology_id: str, topology_config: SentinelConfig) -> None:
@@ -70,12 +72,15 @@ class TopologyManager:
 
         topo = self._topologies[topology_id]
 
-        for name, engine_config in desired_engines.items():
-            if name not in topo.tasks or topo.tasks[name].done():
-                runner = build_correlation_engine(engine_config, merged)
-                task = asyncio.create_task(runner.run(), name=f"dyn-engine-{name}")
-                topo.tasks[name] = task
-                logger.info("topology_engine_started", engine=name, topology=topology_id)
+        if self._engines_enabled:
+            for name, engine_config in desired_engines.items():
+                if name not in topo.tasks or topo.tasks[name].done():
+                    runner = build_correlation_engine(engine_config, merged)
+                    task = asyncio.create_task(runner.run(), name=f"dyn-engine-{name}")
+                    topo.tasks[name] = task
+                    logger.info("topology_engine_started", engine=name, topology=topology_id)
+        elif desired_engines:
+            logger.info("topology_engines_skipped", count=len(desired_engines), topology=topology_id, reason="agent-only mode")
 
         for name, agent_config in desired_agents.items():
             if name not in topo.tasks or topo.tasks[name].done():
