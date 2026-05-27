@@ -4,8 +4,8 @@
     "storage_path": "~/.sentinel/usecase",
 
     "redis": {
-      "host": "localhost",
-      "port": 6379
+      "host": "${SENTINEL_REDIS_HOST}",
+      "port": "${SENTINEL_REDIS_PORT}"
     },
 
     "aws": {

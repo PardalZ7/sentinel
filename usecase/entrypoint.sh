@@ -18,10 +18,12 @@ if [ -n "$REDIS_URL" ]; then
     SENTINEL_REDIS_PORT="${hostport##*:}"
     export SENTINEL_REDIS_HOST
     export SENTINEL_REDIS_PORT
-    echo "[entrypoint] Redis: ${SENTINEL_REDIS_HOST}:${SENTINEL_REDIS_PORT}"
 else
-    echo "[entrypoint] WARNING: REDIS_URL not set — engines will use localhost:6379"
+    echo "[entrypoint] WARNING: REDIS_URL not set — falling back to localhost:6379"
+    export SENTINEL_REDIS_HOST="${SENTINEL_REDIS_HOST:-localhost}"
+    export SENTINEL_REDIS_PORT="${SENTINEL_REDIS_PORT:-6379}"
 fi
+echo "[entrypoint] Redis: ${SENTINEL_REDIS_HOST}:${SENTINEL_REDIS_PORT}"
 
 # Derive SQS_BASE_URL from AWS env vars so sentinel.json ${SQS_BASE_URL} resolves correctly.
 if [ -z "$SQS_BASE_URL" ]; then
