@@ -32,6 +32,8 @@ if [ -n "$SENTINEL_URL" ]; then
             sleep 5
         done
         echo "[entrypoint] topology registered with sentinel."
+        echo "[entrypoint] starting correlation engines..."
+        sentinel start --config sentinel.json --mode engine
     ) &
 fi
 
