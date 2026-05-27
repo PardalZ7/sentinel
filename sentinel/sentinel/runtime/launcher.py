@@ -1177,7 +1177,7 @@ async def launch(
     # statically here would duplicate runners and cause port conflicts on cortex.
     cp_enabled = config.control_plane.enabled
 
-    if run_engines and not cp_enabled:
+    if run_engines and (not cp_enabled or mode == "engine"):
         for engine_config in config.correlation_engines:
             runner = build_correlation_engine(engine_config, config)
             tasks.append(asyncio.create_task(runner.run(), name=f"engine-{engine_config.name}"))
