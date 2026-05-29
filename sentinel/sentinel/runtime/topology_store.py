@@ -1,5 +1,7 @@
+import json
 from pathlib import Path
 
+from sentinel.config.loader import _interpolate_env_vars
 from sentinel.config.schema import SentinelConfig
 from sentinel.logging.logger import get_logger
 
@@ -23,7 +25,8 @@ class TopologyStore:
         if not path.exists():
             return None
         try:
-            return SentinelConfig.model_validate_json(path.read_text())
+            raw = _interpolate_env_vars(json.loads(path.read_text()))
+            return SentinelConfig.model_validate(raw)
         except Exception as exc:
             logger.warning("topology_load_failed", topology=topology_id, error=str(exc))
             return None
@@ -32,7 +35,8 @@ class TopologyStore:
         result: dict[str, SentinelConfig] = {}
         for path in self._dir.glob("*.json"):
             try:
-                result[path.stem] = SentinelConfig.model_validate_json(path.read_text())
+                raw = _interpolate_env_vars(json.loads(path.read_text()))
+                result[path.stem] = SentinelConfig.model_validate(raw)
             except Exception as exc:
                 logger.warning("topology_load_failed", path=str(path), error=str(exc))
         return result

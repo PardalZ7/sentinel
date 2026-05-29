@@ -1,5 +1,6 @@
 from aiohttp import web
 
+from sentinel.config.loader import _interpolate_env_vars
 from sentinel.config.schema import SentinelConfig
 from sentinel.logging.logger import get_logger
 
@@ -38,7 +39,7 @@ def register_routes(
         except Exception:
             raise web.HTTPBadRequest(reason="Request body must be valid JSON")
 
-        config_data = body.get("config", body)
+        config_data = _interpolate_env_vars(body.get("config", body))
         try:
             config = SentinelConfig.model_validate(config_data)
         except Exception as exc:
