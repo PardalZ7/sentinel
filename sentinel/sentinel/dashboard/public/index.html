@@ -1379,7 +1379,7 @@ function appendEventLog(ev, dimHb, alertData) {
   const rowClass   = isAlert ? 'alert' : isSilence ? 'silence' : isAnomaly ? 'anomaly' : isHb ? 'heartbeat' : '';
 
   // Track unread when panel collapsed
-  if (panelCollapsed && (isAnomaly || isAlert || isSilence)) {
+  if (panelState === 'collapsed' && (isAnomaly || isAlert || isSilence)) {
     unreadCount++;
     const badge = document.getElementById('unread-badge');
     badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
