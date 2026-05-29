@@ -39,6 +39,41 @@ from sentinel.logging.logger import get_logger
 logger = get_logger(__name__)
 
 
+async def store_requests(
+    store: ICorrelationStore,
+    config: CorrelationEngineConfig,
+    message: RawMessage,
+) -> list[str]:
+    """Grouping-mode input: store multiple records, each keyed by its correlationId.
+
+    Used when the input message is a batch (e.g. records[].correlationId).
+    Returns the list of stored IDs, or [] if none were found.
+    """
+    from sentinel.agent.correlator import extract_correlation_ids
+
+    correlation_ids = extract_correlation_ids(message.body, config.effective_input_field)
+    if not correlation_ids:
+        logger.warning(
+            "missing_correlation_ids_on_input",
+            engine=config.name,
+            field=config.effective_input_field,
+            body_keys=list(message.body.keys()) if isinstance(message.body, dict) else type(message.body).__name__,
+            body_preview=str(message.body)[:200],
+        )
+        return []
+
+    data = {
+        "body": message.body,
+        "received_at": message.received_at.isoformat(),
+        "size_bytes": message.size_bytes,
+    }
+    for correlation_id in correlation_ids:
+        key = make_correlation_key(config.name, correlation_id)
+        await store_input(store, key, data, config.correlation_ttl_s)
+
+    return correlation_ids
+
+
 async def store_request(
     store: ICorrelationStore,
     config: CorrelationEngineConfig,

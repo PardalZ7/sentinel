@@ -60,13 +60,21 @@ class CorrelationEngineRunner:
         )
 
     async def _run_input_loop(self) -> None:
+        mode = self.engine_config.correlation_mode
         async for message in self.input_transport.receive():
             try:
-                await correlate.store_request(
-                    store=self.correlation_store,
-                    config=self.engine_config,
-                    message=message,
-                )
+                if mode == "grouping":
+                    await correlate.store_requests(
+                        store=self.correlation_store,
+                        config=self.engine_config,
+                        message=message,
+                    )
+                else:
+                    await correlate.store_request(
+                        store=self.correlation_store,
+                        config=self.engine_config,
+                        message=message,
+                    )
                 await self.input_transport.ack(message.id)
             except Exception as exc:
                 logger.error(
