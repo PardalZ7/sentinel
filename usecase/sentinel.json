@@ -58,7 +58,7 @@
         ]
       },
       {
-        "_comment": "engine02 — APP03 batcher (N:1, 1800s). Grouping: multiple APP02 inputs → one APP03 batch output (records[*].correlationId).",
+        "_comment": "engine02 — APP03 batcher (N:1, 1800s). Grouping: multiple APP02 inputs (correlationId) → one APP03 batch output (records[*].correlationId).",
         "name": "engine02",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-out" },
@@ -71,7 +71,7 @@
         ]
       },
       {
-        "_comment": "engine03 — APP04 validator (N:1, 600s). Grouping: APP03 batch input (records[*].correlationId) correlated with APP04 batch output (records[*].correlationId).",
+        "_comment": "engine03 — APP04 validator (N:1, 600s). Normal mode: APP02 output (correlationId) correlated with APP04 output (correlationId).",
         "name": "engine03",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out" },
@@ -83,7 +83,7 @@
         ]
       },
       {
-        "_comment": "engine04 — full pipeline (N:1, 900s). Grouping: APP01 raw inputs correlated with APP04 batch output (records[*].correlationId).",
+        "_comment": "engine04 — full pipeline (N:1, 900s). Normal mode: APP02 raw inputs correlated with APP04 raw output (correlationId).",
         "name": "engine04",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-out" },
@@ -181,10 +181,7 @@
         "name": "agent03",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" },
         "test_buffer_size": 150,
-        "cortex": [
-          { "host": "localhost", "port": 50051 },
-          { "host": "localhost", "port": 50052 }
-        ],
+        "cortex": [{ "host": "localhost", "port": 50052 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
@@ -227,10 +224,7 @@
         "name": "agent04",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" },
         "test_buffer_size": 100,
-        "cortex": [
-          { "host": "localhost", "port": 50052 },
-          { "host": "localhost", "port": 50053 }
-        ],
+        "cortex": [{ "host": "localhost", "port": 50052 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
@@ -265,10 +259,10 @@
 
     "cortex": [
       {
-        "_comment": "cortex11 — monitors agent01/02/03. Detects cascades between enrichment and downstream.",
+        "_comment": "cortex11 — monitors agent01/02. Detects cascades in the enrichment layer.",
         "name": "cortex11",
         "grpc_port": 50051,
-        "inputs": ["agent01", "agent02", "agent03"],
+        "inputs": ["agent01", "agent02"],
         "silence_threshold_s": 45,
         "test_buffer_size": 300,
         "training_sample_interval_s": 5,
@@ -301,10 +295,10 @@
         }
       },
       {
-        "_comment": "cortex21 — top-level. Monitors agent04 + cortex11/12. Systemic view.",
+        "_comment": "cortex21 — top-level. Monitors cortex11/12. Systemic view.",
         "name": "cortex21",
         "grpc_port": 50053,
-        "inputs": ["agent04", "cortex11", "cortex12"],
+        "inputs": ["cortex11", "cortex12"],
         "silence_threshold_s": 60,
         "test_buffer_size": 100,
         "training_sample_interval_s": 15,
