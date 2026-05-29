@@ -71,11 +71,12 @@
         ]
       },
       {
-        "_comment": "engine03 — APP04 validator (N:1, 600s). Grouping: individual APP02 outputs (sns02→sentinel-a03-in) correlated with APP04 batch output (sns04→sentinel-a03-out, records[*].correlationId).",
+        "_comment": "engine03 — APP04 validator (N:1, 600s). Grouping: APP03 batch input (records[*].correlationId) correlated with APP04 batch output (records[*].correlationId).",
         "name": "engine03",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out" },
         "correlation_field": "correlationId",
+        "input_correlation_field": "records.correlationId",
         "output_correlation_field": "records.correlationId",
         "correlation_mode": "grouping",
         "correlation_ttl_s": 600,
