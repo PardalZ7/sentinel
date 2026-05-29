@@ -75,10 +75,8 @@
         "name": "engine03",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out" },
-        "correlation_field": "correlationId",
-        "input_correlation_field": "records.correlationId",
-        "output_correlation_field": "records.correlationId",
-        "correlation_mode": "grouping",
+        "correlation_field": "correlationId",        
+        "correlation_mode": "normal",
         "correlation_ttl_s": 600,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" }
