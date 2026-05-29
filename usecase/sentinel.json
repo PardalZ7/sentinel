@@ -87,9 +87,8 @@
         "name": "engine04",
         "input":  { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in"  },
         "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-out" },
-        "correlation_field": "correlationId",
-        "output_correlation_field": "records.correlationId",
-        "correlation_mode": "grouping",
+        "correlation_field": "correlationId",        
+        "correlation_mode": "normal",
         "correlation_ttl_s": 900,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" }
