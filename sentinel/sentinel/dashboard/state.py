@@ -133,6 +133,8 @@ class DashboardState:
         self._cortex_set_rate_callbacks: dict[str, Any] = {}    # cortex_name → cb(rate)
         self._cortex_run_test_callbacks: dict[str, Any] = {}    # cortex_name → cb() → dict
         self._auto_infer_callbacks: dict[str, Any] = {}          # agent_name → cb(detector_name, threshold|None)
+        self._reset_agent_callbacks: dict[str, Any] = {}         # agent_name → async cb()
+        self._reset_cortex_callbacks: dict[str, Any] = {}        # cortex_name → async cb()
         self.config_data: dict = {}
         self._payload_store: dict[str, dict] = {}
         self._payload_order: deque[str] = deque(maxlen=_MAX_PAYLOAD_STORE)
@@ -305,6 +307,33 @@ class DashboardState:
     def register_auto_infer_callback(self, agent_name: str, callback) -> None:
         """Register callback: cb(detector_name: str, threshold: float | None)."""
         self._auto_infer_callbacks[agent_name] = callback
+
+    def register_reset_callbacks(self, agent_name: str, reset_cb) -> None:
+        """Register async reset callback for an agent: async cb()."""
+        self._reset_agent_callbacks[agent_name] = reset_cb
+
+    def register_cortex_reset_callback(self, cortex_name: str, reset_cb) -> None:
+        """Register async reset callback for a cortex: async cb()."""
+        self._reset_cortex_callbacks[cortex_name] = reset_cb
+
+    async def reset_topology(self) -> None:
+        """Reset all agents and cortex to initial state in-memory (buffers, models, counters).
+
+        Does NOT clear disk models or Redis — those are handled by the server endpoint
+        which also calls this method.
+        """
+        for cb in self._reset_agent_callbacks.values():
+            await cb()
+        for cb in self._reset_cortex_callbacks.values():
+            await cb()
+
+        self.recent_events.clear()
+        self.recent_errors.clear()
+        self.recent_alerts.clear()
+        self._payload_store.clear()
+        self._payload_order.clear()
+
+        self._push_sse("topology_reset", {})
 
     async def set_detector_auto_infer(
         self, agent_name: str, detector_name: str, threshold: float | None

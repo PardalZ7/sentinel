@@ -647,6 +647,86 @@ async def _handle_queues_purge(request):
     return web.json_response({"ok": True, "purged": purged, "skipped": skipped, "errors": errors})
 
 
+async def _handle_topology_reset(request):
+    from aiohttp import web
+
+    state: DashboardState = request.app["sentinel_state"]
+    sentinel_cfg = state.config_data.get("sentinel", state.config_data)
+    redis_cfg = sentinel_cfg.get("redis", {})
+    storage_path = _get_storage_path(state)
+
+    # 1. Reset all agents and cortex in-memory (models, buffers, counters)
+    await state.reset_topology()
+
+    # 2. Clear model files from disk (agents + cortex)
+    cleared_agents: list[str] = []
+    agents_dir = storage_path / "agents"
+    if agents_dir.exists():
+        for agent_dir in agents_dir.iterdir():
+            if agent_dir.is_dir():
+                shutil.rmtree(agent_dir)
+                cleared_agents.append(agent_dir.name)
+
+    cleared_cortex: list[str] = []
+    cortex_dir = storage_path / "cortex"
+    if cortex_dir.exists():
+        for cx_dir in cortex_dir.iterdir():
+            if cx_dir.is_dir():
+                shutil.rmtree(cx_dir)
+                cleared_cortex.append(cx_dir.name)
+
+    # 3. Purge all Sentinel keys from Redis
+    redis_deleted = 0
+    redis_error: str | None = None
+    try:
+        import redis.asyncio as aioredis
+        client = aioredis.Redis(
+            host=redis_cfg.get("host", "localhost"),
+            port=redis_cfg.get("port", 6379),
+            db=redis_cfg.get("db", 0),
+            password=redis_cfg.get("password") or None,
+        )
+        agent_names = [a["name"] for a in sentinel_cfg.get("agents", [])]
+        cortex_names = [c["name"] for c in sentinel_cfg.get("cortex", [])]
+        for name in agent_names + cortex_names:
+            pattern = f"{name}:*"
+            cursor = 0
+            while True:
+                cursor, keys = await client.scan(cursor, match=pattern, count=500)
+                if keys:
+                    redis_deleted += await client.delete(*keys)
+                if cursor == 0:
+                    break
+        # Also purge cortex grouping keys
+        for name in cortex_names:
+            pattern = f"cortex:{name}:*"
+            cursor = 0
+            while True:
+                cursor, keys = await client.scan(cursor, match=pattern, count=500)
+                if keys:
+                    redis_deleted += await client.delete(*keys)
+                if cursor == 0:
+                    break
+        await client.aclose()
+    except Exception as exc:
+        redis_error = str(exc)
+        logger.warning("topology_reset_redis_failed", error=redis_error)
+
+    logger.info(
+        "topology_reset",
+        agents=cleared_agents,
+        cortex=cleared_cortex,
+        redis_deleted=redis_deleted,
+    )
+    return web.json_response({
+        "ok": True,
+        "cleared_agents": cleared_agents,
+        "cleared_cortex": cleared_cortex,
+        "redis_deleted_keys": redis_deleted,
+        "redis_error": redis_error,
+    })
+
+
 async def _handle_events_buffer(request):
     from aiohttp import web
     from dataclasses import asdict
@@ -722,6 +802,7 @@ def create_app(state: DashboardState, topology_manager=None, topology_store=None
     app.router.add_post("/api/models/clear", _handle_models_clear)
     app.router.add_post("/api/redis/purge", _handle_redis_purge)
     app.router.add_post("/api/queues/purge", _handle_queues_purge)
+    app.router.add_post("/api/topology/reset", _handle_topology_reset)
 
     return app
 

@@ -749,6 +749,9 @@
           <button class="model-btn clear" id="btn-purge-redis" onclick="redisPurge()">
             ⊘ Purge Redis
           </button>
+          <button class="model-btn clear" id="btn-topology-reset" onclick="topologyReset()" style="border-color:#f97316;color:#f97316;background:rgba(249,115,22,.1)">
+            ⟳ Clear Topology
+          </button>
         </div>
         <div class="model-status" id="ops-status"></div>
       </div>
@@ -2192,6 +2195,37 @@ async function modelsClear() {
     modelStatus('Clear error: ' + e.message, 'err');
   } finally {
     modelsBusy(false);
+  }
+}
+
+async function topologyReset() {
+  if (!confirm(
+    'Reset entire topology to initial state?\n\n' +
+    '• All agent and cortex models cleared from disk\n' +
+    '• Training buffers, test buffers and counters reset to zero\n' +
+    '• All phases reverted to COLD / TRAINING\n' +
+    '• Redis correlation keys purged\n\n' +
+    'This cannot be undone.'
+  )) return;
+  const btn = document.getElementById('btn-topology-reset');
+  if (btn) btn.disabled = true;
+  opsBusy(true);
+  opsStatus('Resetting topology…', 'info');
+  try {
+    const res = await fetch('/api/topology/reset', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { opsStatus('Reset failed: ' + (data.error || res.statusText), 'err'); return; }
+    let msg = 'Topology reset.';
+    if (data.cleared_agents.length) msg += ' Agents cleared: ' + data.cleared_agents.join(', ') + '.';
+    if (data.cleared_cortex.length) msg += ' Cortex cleared: ' + data.cleared_cortex.join(', ') + '.';
+    if (data.redis_deleted_keys) msg += ` Redis: ${data.redis_deleted_keys} keys deleted.`;
+    if (data.redis_error) msg += ` (Redis warning: ${data.redis_error})`;
+    opsStatus(msg, data.redis_error ? 'info' : 'ok');
+  } catch (e) {
+    opsStatus('Reset error: ' + e.message, 'err');
+  } finally {
+    opsBusy(false);
+    if (btn) btn.disabled = false;
   }
 }
 

@@ -68,6 +68,22 @@ class DetectorState:
     training_in_progress: bool = False                     # True while background training task is running
     gating_detector: str | None = None                     # name of detector used to filter contaminated training samples
 
+    def reset(self) -> "DetectorState":
+        """Return a copy with all runtime state cleared but configuration preserved."""
+        from dataclasses import replace
+        return replace(
+            self,
+            phase=ModelPhase.COLD,
+            model=None,
+            training_buffer=[],
+            test_buffer=deque(),
+            last_test_result={},
+            champion_fp_rate=1.0,
+            challengers_rejected=0,
+            training_count=0,
+            training_in_progress=False,
+        )
+
     @property
     def is_degraded(self) -> bool:
         """True when max_challengers_rejected is set and consecutive rejections reached it."""

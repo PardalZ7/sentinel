@@ -422,6 +422,36 @@ class AgentRunner:
             )
             self.state = replace(self.state, detectors=new_detectors)
 
+    async def reset(self) -> None:
+        """Reset all detector states to initial — clears models, buffers, counters."""
+        from dataclasses import replace
+
+        new_detectors = {name: det.reset() for name, det in self.state.detectors.items()}
+        self.state = replace(self.state, detectors=new_detectors, message_count=0, error_count=0)
+
+        if self.dashboard_state is not None:
+            snap = self.dashboard_state.agents.get(self.agent_config.name)
+            if snap:
+                snap.phase = ModelPhase.COLD.value
+                snap.total_messages = 0
+                snap.total_anomalies = 0
+                snap.last_score = 0.0
+                snap.champion_fp_rate = 1.0
+                snap.challengers_rejected = 0
+                snap.test_buffer_count = 0
+                snap.last_test_result = {}
+                for det in snap.detectors:
+                    det.phase = ModelPhase.COLD.value
+                    det.champion_fp_rate = 1.0
+                    det.challengers_rejected = 0
+                    det.training_count = 0
+                    det.last_score = 0.0
+                    det.test_buffer_count = 0
+                    det.last_test_result = {}
+            self.dashboard_state._push_sse("agent_reset", {"name": self.agent_config.name})
+
+        logger.info("agent_reset", agent=self.agent_config.name)
+
 
 @dataclass
 class CortexRunner:
@@ -588,6 +618,37 @@ class CortexRunner:
             cortex=self.cortex_config.name,
             strategy=self._strategy.name,
         )
+
+    async def reset(self) -> None:
+        """Reset cortex to initial state — clears model, buffers, state vectors."""
+        self.autoencoder_model = None
+        self.training_buffer = []
+        self.test_buffer = deque()
+        self.last_test_result = {}
+        self.baseline_error = 0.01
+        self.state_vectors = {}
+        self.causal_window = deque(maxlen=100)
+        self.phase = ModelPhase.TRAINING
+        self._strategy = None
+        self._adaptation_ctx = None
+        self._last_training_sample_at = None
+
+        if self.dashboard_state is not None:
+            snap = self.dashboard_state.cortex.get(self.cortex_config.name)
+            if snap:
+                snap.phase = "TRAINING"
+                snap.total_messages = 0
+                snap.total_alerts = 0
+                snap.training_samples = 0
+                snap.last_alert_type = ""
+                snap.last_alert_severity = ""
+                snap.last_alert_at = ""
+                snap.test_sample_rate = 0.0
+                snap.test_buffer_count = 0
+                snap.last_test_result = {}
+            self.dashboard_state._push_sse("cortex_reset", {"name": self.cortex_config.name})
+
+        logger.info("cortex_reset", cortex=self.cortex_config.name)
 
     def set_test_rate(self, rate: float) -> None:
         self.test_sample_rate = max(0.0, min(1.0, rate))
@@ -1100,6 +1161,9 @@ def build_agent(
         dashboard_state.register_auto_infer_callback(
             agent_config.name, runner.set_auto_infer
         )
+        dashboard_state.register_reset_callbacks(
+            agent_config.name, runner.reset
+        )
 
     return runner
 
@@ -1144,7 +1208,7 @@ def build_cortex(
         else None
     )
 
-    return CortexRunner(
+    runner = CortexRunner(
         cortex_config=cortex_config,
         sentinel_config=sentinel_config,
         dashboard_state=dashboard_state,
@@ -1153,6 +1217,11 @@ def build_cortex(
         _correlation_store=correlation_store,
         _grouping_ttl_s=grouping_ttl_s,
     )
+
+    if dashboard_state is not None:
+        dashboard_state.register_cortex_reset_callback(cortex_config.name, runner.reset)
+
+    return runner
 
 
 async def launch(
