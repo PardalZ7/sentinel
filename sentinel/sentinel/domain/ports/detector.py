@@ -73,7 +73,7 @@ class DetectorState:
         from dataclasses import replace
         return replace(
             self,
-            phase=ModelPhase.COLD,
+            phase=ModelPhase.TRAINING,
             model=None,
             training_buffer=[],
             test_buffer=deque(),

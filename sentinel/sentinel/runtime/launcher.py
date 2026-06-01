@@ -432,7 +432,7 @@ class AgentRunner:
         if self.dashboard_state is not None:
             snap = self.dashboard_state.agents.get(self.agent_config.name)
             if snap:
-                snap.phase = ModelPhase.COLD.value
+                snap.phase = ModelPhase.TRAINING.value
                 snap.total_messages = 0
                 snap.total_anomalies = 0
                 snap.last_score = 0.0
@@ -441,7 +441,7 @@ class AgentRunner:
                 snap.test_buffer_count = 0
                 snap.last_test_result = {}
                 for det in snap.detectors:
-                    det.phase = ModelPhase.COLD.value
+                    det.phase = ModelPhase.TRAINING.value
                     det.champion_fp_rate = 1.0
                     det.challengers_rejected = 0
                     det.training_count = 0
