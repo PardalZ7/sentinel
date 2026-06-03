@@ -30,7 +30,7 @@ npm-debug.log*
 .env
 *.env
 .env.*
-sentinel.json
+# sentinel.json tracked per usecase — not ignored globally
 
 # OS
 .DS_Store

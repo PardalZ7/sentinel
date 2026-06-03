@@ -1,0 +1,118 @@
+{
+  "sentinel": {
+    "schema_version": 1,
+    "storage_path": "~/.sentinel/usecase-2",
+
+    "redis": {
+      "host": "localhost",
+      "port": 6379
+    },
+
+    "aws": {
+      "region": "us-east-1"
+    },
+
+    "dashboard": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 8889
+    },
+
+    "control_plane": {
+      "enabled": true
+    },
+
+    "alarm_queue": {
+      "type": "sqs",
+      "resource": "${SQS_BASE_URL}/sentinel-alarms"
+    },
+
+    "correlation_engines": [
+      {
+        "name": "engine01",
+        "inputs": [
+          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample" } }
+        ],
+        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample" },
+        "correlation_field": "correlationId",
+        "correlation_mode": "normal",
+        "correlation_ttl_s": 180,
+        "destinations": [
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample_pairs" }
+        ]
+      }
+    ],
+
+    "agents": [
+      {
+        "name": "agent01",
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample_pairs" },
+        "test_buffer_size": 150,
+        "cortex": [{ "host": "localhost", "port": 50051 }],
+        "reporting": {
+          "heartbeat_interval_s": 15,
+          "send_all_events": false
+        },
+        "detectors": [
+          {
+            "name": "if_baseline",
+            "algorithm": "isolation_forest",
+            "phase": "TRAINING",
+            "training_window": 1000,
+            "test_buffer_size": 100,
+            "anomaly_threshold": -0.1,
+            "n_estimators": 100,
+            "contamination": "auto",
+            "auto_infer_fp_threshold": 0.05
+          },
+          {
+            "name": "cvae_semantic",
+            "algorithm": "cvae",
+            "phase": "TRAINING",
+            "training_window": 500,
+            "test_buffer_size": 100,
+            "anomaly_threshold": 0.5,
+            "hidden_dim": 32,
+            "latent_dim": 8,
+            "learning_rate": 0.001,
+            "epochs": 30,
+            "auto_infer_fp_threshold": 0.08,
+            "gating_detector": "if_baseline",
+            "max_challengers_rejected": 10
+          },
+          {
+            "name": "maf_distribution",
+            "algorithm": "maf",
+            "phase": "TRAINING",
+            "training_window": 1500,
+            "test_buffer_size": 150,
+            "anomaly_threshold": 2.0,
+            "hidden_dim": 64,
+            "learning_rate": 0.001,
+            "epochs": 30,
+            "auto_infer_fp_threshold": 0.10
+          }
+        ]
+      }
+    ],
+
+    "cortex": [
+      {
+        "name": "cortex01",
+        "grpc_port": 50051,
+        "inputs": ["agent01"],
+        "silence_threshold_s": 45,
+        "test_buffer_size": 200,
+        "training_sample_interval_s": 5,
+        "adaptation_mode": "fine_tuning",
+        "adaptation": {
+          "fine_tuning_interval": 100,
+          "fine_tuning_epochs": 8,
+          "fine_tuning_lr": 0.0001,
+          "replay_ratio": 0.3,
+          "replay_buffer_size": 500
+        }
+      }
+    ]
+  }
+}
