@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 import pytest
 
 from sentinel.agent.use_cases import process_pair
-from sentinel.agent.use_cases.correlate import store_request, resolve_pair
-from sentinel.config.schema import AgentConfig, CorrelationEngineConfig, ReportingConfig
+from sentinel.agent.use_cases.correlate import store_input_capture, resolve_pair
+from sentinel.config.schema import AgentConfig, CorrelationEngineConfig, InputConfig, ReportingConfig, TransportResourceConfig
 from sentinel.domain.models import AnomalyType, CorrelatedPair, ModelPhase, ProcessedEvent, RawMessage
 from sentinel.domain.ports.correlation_store import ICorrelationStore
 from sentinel.domain.ports.detector import DetectorState, IDetector
@@ -29,8 +29,13 @@ class MockCorrelationStore(ICorrelationStore):
     async def delete(self, key):
         self._store.pop(key, None)
 
-    async def record_group_source(self, key, source, data, expected_sources, ttl_s):
-        pass
+    async def record_group_source(self, key, source_name, event_snapshot, expected_sources, ttl_s):
+        existing = self._store.get(key, {})
+        if not existing:
+            existing = {s: None for s in expected_sources}
+        existing[source_name] = event_snapshot
+        self._store[key] = existing
+        return existing
 
 
 class MockModelStore(IModelStore):
@@ -120,9 +125,14 @@ def _agent_config(send_all=True):
 def _engine_config():
     return CorrelationEngineConfig(
         name="agent01",
+        inputs=[InputConfig(name="request", transport=TransportResourceConfig(type="sqs", resource="http://sqs/queue"))],
         correlation_field="correlationId",
         correlation_ttl_s=300,
     )
+
+
+def _input_cfg(config: CorrelationEngineConfig) -> InputConfig:
+    return config.inputs[0]
 
 
 def _make_state(phase=ModelPhase.TRAINING, *, always_anomaly=False):
@@ -151,17 +161,16 @@ def _make_pair(
     latency_ms=1000.0,
     timed_out=False,
 ):
+    from sentinel.domain.models import InputCapture
     now = _now()
-    from datetime import timedelta
     input_at = datetime(2024, 1, 1, 11, 59, 59, tzinfo=timezone.utc)
+    body = input_body or {"correlationId": correlation_id, "data": "input"}
     return CorrelatedPair(
         engine_name="agent01",
         correlation_id=correlation_id,
-        input_body=input_body or {"correlationId": correlation_id, "data": "input"},
+        inputs=[] if timed_out else [InputCapture(name="request", body=body, received_at=input_at, size_bytes=10)],
         output_body=output_body or {"correlationId": correlation_id, "data": "output"},
-        input_received_at=input_at,
         output_received_at=now,
-        input_size_bytes=10,
         output_size_bytes=10,
         processing_latency_ms=latency_ms,
         timed_out=timed_out,
@@ -181,17 +190,17 @@ async def test_store_request_persists():
     store = MockCorrelationStore()
     config = _engine_config()
     body = {"correlationId": "corr-1", "data": "hello"}
-    await store_request(store, config, _make_raw(body))
+    await store_input_capture(store, config, _input_cfg(config), _make_raw(body))
     stored = await store.get("agent01:corr-1")
     assert stored is not None
-    assert stored["body"] == body
+    assert stored["request"]["body"] == body
 
 
 @pytest.mark.asyncio
 async def test_store_request_missing_field():
     store = MockCorrelationStore()
     config = _engine_config()
-    await store_request(store, config, _make_raw({"no_correlation": "here"}))
+    await store_input_capture(store, config, _input_cfg(config), _make_raw({"no_correlation": "here"}))
     assert len(store._store) == 0
 
 
@@ -200,7 +209,7 @@ async def test_resolve_pair_normal_path():
     store = MockCorrelationStore()
     config = _engine_config()
     input_body = {"correlationId": "corr-2", "data": "input"}
-    await store_request(store, config, _make_raw(input_body))
+    await store_input_capture(store, config, _input_cfg(config), _make_raw(input_body))
 
     output_body = {"correlationId": "corr-2", "data": "output"}
     output_ts = datetime(2024, 1, 1, 12, 0, 1, tzinfo=timezone.utc)

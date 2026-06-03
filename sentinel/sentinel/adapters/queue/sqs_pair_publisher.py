@@ -14,7 +14,7 @@
 
 import json
 
-from sentinel.adapters.grpc.generated.correlated_pair_pb2 import CorrelatedPairProto
+from sentinel.adapters.grpc.generated.correlated_pair_pb2 import CorrelatedPairProto, InputCaptureProto
 from sentinel.domain.models import CorrelatedPair
 from sentinel.domain.ports.pair_publisher import IPairPublisher
 from sentinel.logging.logger import get_logger
@@ -23,14 +23,21 @@ logger = get_logger(__name__)
 
 
 def _to_proto(pair: CorrelatedPair) -> CorrelatedPairProto:
+    inputs = [
+        InputCaptureProto(
+            name=inp.name,
+            body=json.dumps(inp.body).encode(),
+            received_at_ms=int(inp.received_at.timestamp() * 1000),
+            size_bytes=inp.size_bytes,
+        )
+        for inp in pair.inputs
+    ]
     return CorrelatedPairProto(
         engine_name=pair.engine_name,
         correlation_id=pair.correlation_id,
-        input_body=json.dumps(pair.input_body).encode(),
+        inputs=inputs,
         output_body=json.dumps(pair.output_body).encode(),
-        input_received_at_ms=int(pair.input_received_at.timestamp() * 1000),
         output_received_at_ms=int(pair.output_received_at.timestamp() * 1000),
-        input_size_bytes=pair.input_size_bytes,
         output_size_bytes=pair.output_size_bytes,
         processing_latency_ms=pair.processing_latency_ms,
         timed_out=pair.timed_out,

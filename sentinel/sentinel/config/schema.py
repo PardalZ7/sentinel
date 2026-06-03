@@ -167,32 +167,41 @@ class DetectorConfig(BaseModel):
     max_challengers_rejected: int = 0
 
 
+class InputConfig(BaseModel):
+    """Configuration for one input stream in a CorrelationEngine."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    transport: TransportResourceConfig = Field(default_factory=TransportResourceConfig)
+    name: str
+    correlation_field: str | None = None
+
+
 class CorrelationEngineConfig(BaseModel):
     """Configuration for a CorrelationEngine instance running on the use-case side.
 
-    The engine consumes input and output queues, correlates messages via Redis,
-    and publishes CorrelatedPair objects to one or more destination queues (agents).
+    The engine consumes N input queues and one output queue, correlates messages via
+    Redis, and publishes CorrelatedPair objects to one or more destination queues.
+    All N inputs must arrive for a given correlationId before the pair is published.
 
-    On timeout (output arrives but no matching input found), a notification is sent
+    On timeout (output arrives but not all inputs found), a notification is sent
     to timeout_topic_arn if configured; otherwise the event is logged and dropped.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     name: str
-    input: TransportResourceConfig = Field(default_factory=TransportResourceConfig)
+    inputs: list[InputConfig] = Field(default_factory=list, min_length=1)
     output: TransportResourceConfig = Field(default_factory=TransportResourceConfig)
     correlation_field: str = "correlationId"
-    input_correlation_field: str | None = None
     output_correlation_field: str | None = None
     correlation_mode: Literal["normal", "grouping", "splitting"] = "normal"
     correlation_ttl_s: int = 300
     destinations: list[TransportResourceConfig] = Field(default_factory=list)
     timeout_topic_arn: str | None = None
 
-    @property
-    def effective_input_field(self) -> str:
-        return self.input_correlation_field or self.correlation_field
+    def effective_input_field(self, input_cfg: InputConfig) -> str:
+        return input_cfg.correlation_field or self.correlation_field
 
     @property
     def effective_output_field(self) -> str:

@@ -15,8 +15,9 @@
 """CorrelationEngineRunner — runs alongside the use case, not inside Sentinel cloud.
 
 Responsibilities:
-  - Consume input and output queues
-  - Match pairs via Redis (ICorrelationStore)
+  - Consume N input queues and one output queue
+  - Buffer partial captures in Redis (ICorrelationStore) until all N inputs arrive
+  - Match complete groups against outputs to produce CorrelatedPair
   - Publish CorrelatedPair to one or more destination queues (IPairPublisher)
   - Notify via SNS on timeout (ITimeoutNotifier) — silently skipped if not configured
 
@@ -28,7 +29,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from sentinel.agent.use_cases import correlate
-from sentinel.config.schema import CorrelationEngineConfig
+from sentinel.config.schema import CorrelationEngineConfig, InputConfig
 from sentinel.domain.ports.correlation_store import ICorrelationStore
 from sentinel.domain.ports.pair_publisher import IPairPublisher
 from sentinel.domain.ports.timeout_notifier import ITimeoutNotifier
@@ -41,7 +42,8 @@ logger = get_logger(__name__)
 @dataclass
 class CorrelationEngineRunner:
     engine_config: CorrelationEngineConfig
-    input_transport: ITransport
+    # Parallel list: one transport per input in engine_config.inputs
+    input_transports: list[ITransport]
     output_transport: ITransport
     correlation_store: ICorrelationStore
     pair_publishers: list[IPairPublisher]
@@ -52,37 +54,42 @@ class CorrelationEngineRunner:
             "correlation_engine_started",
             engine=self.engine_config.name,
             mode=self.engine_config.correlation_mode,
+            num_inputs=len(self.engine_config.inputs),
             destinations=len(self.pair_publishers),
         )
-        await asyncio.gather(
-            self._run_input_loop(),
-            self._run_output_loop(),
-        )
+        input_loops = [
+            self._run_input_loop(inp_cfg, transport)
+            for inp_cfg, transport in zip(self.engine_config.inputs, self.input_transports)
+        ]
+        await asyncio.gather(*input_loops, self._run_output_loop())
 
-    async def _run_input_loop(self) -> None:
+    async def _run_input_loop(self, inp_cfg: InputConfig, transport: ITransport) -> None:
         mode = self.engine_config.correlation_mode
-        async for message in self.input_transport.receive():
+        async for message in transport.receive():
             try:
                 if mode == "grouping":
-                    await correlate.store_requests(
+                    await correlate.store_input_captures_batch(
                         store=self.correlation_store,
                         config=self.engine_config,
+                        input_cfg=inp_cfg,
                         message=message,
                     )
                 else:
-                    await correlate.store_request(
+                    await correlate.store_input_capture(
                         store=self.correlation_store,
                         config=self.engine_config,
+                        input_cfg=inp_cfg,
                         message=message,
                     )
-                await self.input_transport.ack(message.id)
+                await transport.ack(message.id)
             except Exception as exc:
                 logger.error(
                     "engine_input_error",
                     engine=self.engine_config.name,
+                    input=inp_cfg.name,
                     error=str(exc),
                 )
-                await self.input_transport.nack(message.id)
+                await transport.nack(message.id)
 
     async def _run_output_loop(self) -> None:
         mode = self.engine_config.correlation_mode

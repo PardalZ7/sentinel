@@ -24,13 +24,15 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15\x63orrelated_pair.proto\x12\x08sentinel\"\x8f\x02\n\x13\x43orrelatedPairProto\x12\x13\n\x0b\x65ngine_name\x18\x01 \x01(\t\x12\x16\n\x0e\x63orrelation_id\x18\x02 \x01(\t\x12\x12\n\ninput_body\x18\x03 \x01(\x0c\x12\x13\n\x0boutput_body\x18\x04 \x01(\x0c\x12\x1c\n\x14input_received_at_ms\x18\x05 \x01(\x03\x12\x1d\n\x15output_received_at_ms\x18\x06 \x01(\x03\x12\x18\n\x10input_size_bytes\x18\x07 \x01(\x05\x12\x19\n\x11output_size_bytes\x18\x08 \x01(\x05\x12\x1d\n\x15processing_latency_ms\x18\t \x01(\x02\x12\x11\n\ttimed_out\x18\n \x01(\x08\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15\x63orrelated_pair.proto\x12\x08sentinel\"[\n\x11InputCaptureProto\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0c\n\x04\x62ody\x18\x02 \x01(\x0c\x12\x16\n\x0ereceived_at_ms\x18\x03 \x01(\x03\x12\x12\n\nsize_bytes\x18\x04 \x01(\x05\"\xf0\x01\n\x13\x43orrelatedPairProto\x12\x13\n\x0b\x65ngine_name\x18\x01 \x01(\t\x12\x16\n\x0e\x63orrelation_id\x18\x02 \x01(\t\x12+\n\x06inputs\x18\x03 \x03(\x0b\x32\x1b.sentinel.InputCaptureProto\x12\x13\n\x0boutput_body\x18\x04 \x01(\x0c\x12\x1d\n\x15output_received_at_ms\x18\x05 \x01(\x03\x12\x19\n\x11output_size_bytes\x18\x06 \x01(\x05\x12\x1d\n\x15processing_latency_ms\x18\x07 \x01(\x02\x12\x11\n\ttimed_out\x18\x08 \x01(\x08\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'correlated_pair_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CORRELATEDPAIRPROTO']._serialized_start=36
-  _globals['_CORRELATEDPAIRPROTO']._serialized_end=307
+  _globals['_INPUTCAPTUREPROTO']._serialized_start=35
+  _globals['_INPUTCAPTUREPROTO']._serialized_end=126
+  _globals['_CORRELATEDPAIRPROTO']._serialized_start=129
+  _globals['_CORRELATEDPAIRPROTO']._serialized_end=369
 # @@protoc_insertion_point(module_scope)

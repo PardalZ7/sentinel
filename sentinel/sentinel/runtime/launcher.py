@@ -71,14 +71,22 @@ def _proto_to_pair(proto) -> CorrelatedPair:
     """Deserialize a CorrelatedPairProto into a domain CorrelatedPair."""
     import json as _json
     from datetime import timezone as _tz
+    from sentinel.domain.models import InputCapture
+    inputs = [
+        InputCapture(
+            name=inp.name,
+            body=_json.loads(inp.body) if inp.body else {},
+            received_at=datetime.fromtimestamp(inp.received_at_ms / 1000, tz=_tz.utc),
+            size_bytes=inp.size_bytes,
+        )
+        for inp in proto.inputs
+    ]
     return CorrelatedPair(
         engine_name=proto.engine_name,
         correlation_id=proto.correlation_id,
-        input_body=_json.loads(proto.input_body) if proto.input_body else {},
+        inputs=inputs,
         output_body=_json.loads(proto.output_body) if proto.output_body else {},
-        input_received_at=datetime.fromtimestamp(proto.input_received_at_ms / 1000, tz=_tz.utc),
         output_received_at=datetime.fromtimestamp(proto.output_received_at_ms / 1000, tz=_tz.utc),
-        input_size_bytes=proto.input_size_bytes,
         output_size_bytes=proto.output_size_bytes,
         processing_latency_ms=proto.processing_latency_ms,
         timed_out=proto.timed_out,
@@ -1027,13 +1035,16 @@ def build_correlation_engine(
     endpoint = sentinel_config.aws.endpoint_url
     region = sentinel_config.aws.region
 
-    input_transport = SqsSnsTransport(
-        endpoint_url=endpoint,
-        input_queue_url=engine_config.input.resource,
-        output_topic_arn="",
-        region=region,
-        wait_time_seconds=1,
-    )
+    input_transports = [
+        SqsSnsTransport(
+            endpoint_url=endpoint,
+            input_queue_url=inp_cfg.transport.resource,
+            output_topic_arn="",
+            region=region,
+            wait_time_seconds=1,
+        )
+        for inp_cfg in engine_config.inputs
+    ]
     output_transport = SqsSnsTransport(
         endpoint_url=endpoint,
         input_queue_url=engine_config.output.resource,
@@ -1066,7 +1077,7 @@ def build_correlation_engine(
     )
     return CorrelationEngineRunner(
         engine_config=engine_config,
-        input_transport=input_transport,
+        input_transports=input_transports,
         output_transport=output_transport,
         correlation_store=correlation_store,
         pair_publishers=pair_publishers,

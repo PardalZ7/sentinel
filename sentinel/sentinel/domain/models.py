@@ -88,18 +88,45 @@ class Alert:
 
 
 @dataclass
+class InputCapture:
+    """One input stream's contribution to a correlated pair."""
+    name: str
+    body: dict
+    received_at: datetime
+    size_bytes: int
+
+
+@dataclass
 class CorrelatedPair:
-    """Product of the CorrelationEngine: a matched input+output pair ready for detection."""
+    """Product of the CorrelationEngine: N matched inputs + one output, ready for detection."""
     engine_name: str
     correlation_id: str
-    input_body: dict
+    inputs: list[InputCapture]
     output_body: dict
-    input_received_at: datetime
     output_received_at: datetime
-    input_size_bytes: int
     output_size_bytes: int
     processing_latency_ms: float
     timed_out: bool = False
+
+    @property
+    def input_received_at(self) -> datetime:
+        """Earliest input arrival time (or output time on timeout)."""
+        if not self.inputs:
+            return self.output_received_at
+        return min(i.received_at for i in self.inputs)
+
+    @property
+    def input_size_bytes(self) -> int:
+        return sum(i.size_bytes for i in self.inputs)
+
+    @property
+    def input_body(self) -> dict:
+        """First input body for single-input engines; name-keyed dict for multi-input."""
+        if not self.inputs:
+            return {}
+        if len(self.inputs) == 1:
+            return self.inputs[0].body
+        return {inp.name: inp.body for inp in self.inputs}
 
 
 @dataclass
