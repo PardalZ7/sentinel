@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sentinel — Use Case 2</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; color: #58a6ff; letter-spacing: 0.5px; }
+    header .subtitle { color: #8b949e; font-size: 13px; }
+
+    .main { display: flex; flex-direction: column; gap: 16px; padding: 16px 24px; flex: 1; }
+    .row { display: flex; gap: 16px; align-items: flex-start; }
+
+    .panel {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: #1c2128;
+      border-bottom: 1px solid #30363d;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .panel-header h2 {
+      font-size: 14px; font-weight: 600; color: #e6edf3;
+      text-transform: uppercase; letter-spacing: 0.8px;
+    }
+
+    .panel-body { padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+
+    button {
+      background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+      border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #30363d; }
+
+    .btn-start  { background: #1a3a1a; color: #3fb950; border-color: #238636; font-weight: 600; }
+    .btn-start:hover { background: #238636; color: #fff; }
+    .btn-stop   { background: #3a1a1a; color: #f85149; border-color: #6e3a3a; font-weight: 600; }
+    .btn-stop:hover { background: #6e3a3a; color: #fff; }
+    .btn-apply  { background: #0d2a1a; color: #3fb950; border-color: #1f6b3a; font-weight: 600; font-size: 12px; padding: 5px 12px; }
+    .btn-apply:hover { background: #1f6b3a; color: #fff; }
+    .btn-add    { background: #0d1f3c; color: #79c0ff; border-color: #1f4080; font-weight: 600; font-size: 12px; padding: 5px 12px; }
+    .btn-add:hover { background: #1f4080; color: #fff; }
+    .btn-remove { background: transparent; color: #6e7681; border: none; padding: 2px 6px; font-size: 14px; line-height: 1; }
+    .btn-remove:hover { color: #f85149; background: transparent; }
+
+    .config-group { display: flex; flex-direction: column; gap: 8px; }
+    .config-label { display: flex; justify-content: space-between; align-items: center; color: #e6edf3; font-size: 13px; font-weight: 500; }
+    .config-value { color: #58a6ff; font-family: monospace; font-size: 13px; font-weight: 600; min-width: 48px; text-align: right; }
+    input[type="range"] { width: 100%; height: 4px; background: #21262d; border-radius: 2px; outline: none; cursor: pointer; accent-color: #58a6ff; }
+    .divider { border: none; border-top: 1px solid #21262d; }
+    .config-status { font-size: 12px; color: #8b949e; height: 16px; }
+    .config-status.ok  { color: #3fb950; }
+    .config-status.err { color: #f85149; }
+
+    /* Template cards */
+    .template-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .template-card {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .template-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #161b22;
+      border-bottom: 1px solid #21262d;
+    }
+
+    .template-name-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #e6edf3;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .template-name-input::placeholder { color: #484f58; }
+
+    .weight-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .weight-label { font-size: 11px; color: #8b949e; }
+
+    .weight-input {
+      width: 52px;
+      background: #0d1117;
+      color: #58a6ff;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: monospace;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: right;
+      outline: none;
+    }
+    .weight-input:focus { border-color: #58a6ff; }
+
+    .pct-badge {
+      font-size: 11px;
+      font-weight: 700;
+      color: #3fb950;
+      font-family: monospace;
+      min-width: 42px;
+      text-align: right;
+    }
+
+    .template-card textarea {
+      width: 100%;
+      background: #0d1117;
+      color: #c9d1d9;
+      border: none;
+      border-radius: 0;
+      padding: 10px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+      resize: vertical;
+      outline: none;
+      min-height: 140px;
+      display: block;
+    }
+    .template-card textarea:focus { background: #0a0f16; }
+
+    .template-hint {
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #6e7681;
+      border-top: 1px solid #21262d;
+      line-height: 1.6;
+    }
+    .template-hint code { color: #79c0ff; }
+
+    /* Output log */
+    .output-log {
+      flex: 1; min-height: 280px; max-height: 480px; overflow-y: auto;
+      background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
+      padding: 10px; display: flex; flex-direction: column; gap: 8px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px;
+    }
+    .output-log::-webkit-scrollbar { width: 6px; }
+    .output-log::-webkit-scrollbar-track { background: #0d1117; }
+    .output-log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+    .log-entry {
+      background: #161b22; border: 1px solid #21262d; border-radius: 4px;
+      padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+      animation: fadeIn 0.2s ease;
+    }
+    .log-entry.has-error { border-color: #6e3a3a; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+    .log-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .log-ts { color: #6e7681; font-size: 11px; }
+    .log-tpl { font-size: 11px; font-weight: 600; color: #8b949e; background: #21262d; border-radius: 3px; padding: 1px 6px; }
+
+    .log-errors { display: flex; gap: 4px; flex-wrap: wrap; }
+    .error-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge-omit    { background: #3a1a1a; color: #f85149; border: 1px solid #6e3a3a; }
+    .badge-corrupt { background: #2d2200; color: #e3b341; border: 1px solid #6e5500; }
+    .badge-inject  { background: #0d1f3c; color: #79c0ff; border: 1px solid #1f4080; }
+
+    .log-payload { color: #c9d1d9; white-space: pre-wrap; word-break: break-all; }
+    .empty-log { color: #484f58; text-align: center; margin: auto; font-style: italic; }
+    .output-status { font-size: 11px; color: #8b949e; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sentinel</h1>
+    <span class="subtitle">Use Case 2 — Payload Generator</span>
+  </header>
+
+  <div class="main">
+    <div class="row">
+      <!-- Left: app controls -->
+      <div class="panel" style="flex: 0 0 340px;">
+        <div class="panel-header">
+          <h2>App Controls</h2>
+          <button id="toggle-btn" class="btn-start" onclick="toggleApp()">▶ Start</button>
+        </div>
+        <div class="panel-body">
+
+          <div class="config-group">
+            <div class="config-label">
+              <span>Publish Interval</span>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" id="intervalMs-input" min="25" max="10000" step="25" value="1000"
+                  style="width:72px;background:#0d1117;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:3px 7px;font-family:monospace;font-size:13px;font-weight:600;text-align:right;outline:none;" />
+                <span style="color:#8b949e;font-size:12px;">ms</span>
+              </div>
+            </div>
+            <input type="range" id="intervalMs-slider" min="25" max="10000" step="25" value="1000" />
+          </div>
+
+          <hr class="divider" />
+
+          <div class="config-group">
+            <div class="config-label">
+              <span>Error Rate — Omit field</span>
+              <span class="config-value" id="errorRateOmit-val">0.00</span>
+            </div>
+            <input type="range" id="errorRateOmit-slider" min="0" max="1" step="0.01" value="0" />
+          </div>
+
+          <div class="config-group">
+            <div class="config-label">
+              <span>Error Rate — Corrupt field</span>
+              <span class="config-value" id="errorRateCorrupt-val">0.00</span>
+            </div>
+            <input type="range" id="errorRateCorrupt-slider" min="0" max="1" step="0.01" value="0" />
+          </div>
+
+          <div class="config-group">
+            <div class="config-label">
+              <span>Error Rate — Inject field</span>
+              <span class="config-value" id="errorRateInject-val">0.00</span>
+            </div>
+            <input type="range" id="errorRateInject-slider" min="0" max="1" step="0.01" value="0" />
+          </div>
+
+          <hr class="divider" />
+
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:13px;color:#8b949e;">Published:</span>
+            <span id="published-count" style="font-family:monospace;font-size:15px;font-weight:700;color:#3fb950;">0</span>
+            <div class="config-status" id="config-status" style="margin-left:auto;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: template editor -->
+      <div class="panel" style="flex: 1; min-width: 0;">
+        <div class="panel-header">
+          <h2>Payload Templates</h2>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn-add" onclick="addTemplate()">+ Add Template</button>
+            <button class="btn-apply" onclick="applyTemplates()">✓ Apply All</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="template-list" id="template-list"></div>
+          <div class="config-status" id="template-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Output log -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Output Log</h2>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="output-status" id="output-status"></span>
+          <button onclick="refreshLog()" style="font-size:12px;padding:4px 10px;">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="panel-body" style="padding:12px;">
+        <div class="output-log" id="output-log">
+          <span class="empty-log">No messages yet…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Template state ────────────────────────────────────────────────────────
+
+    let templates = [
+      {
+        id: uid(),
+        name: 'Default',
+        weight: 1,
+        template: JSON.stringify({
+          field1: 'RandomString(20)',
+          field2: 'RandomInteger(13)',
+          field3: 'RandomDouble(50,2)',
+          list: [{ innerValue1: 'RandomString(5)', enum: 'OneOf(Teste01;Teste02;Teste03)' }]
+        }, null, 2),
+      }
+    ];
+
+    function uid() { return 't' + Math.random().toString(36).slice(2, 8); }
+
+    function totalWeight() { return templates.reduce((s, t) => s + (parseFloat(t.weight) || 0), 0); }
+
+    function pct(weight) {
+      const total = totalWeight();
+      if (!total) return '0.0%';
+      return (weight / total * 100).toFixed(1) + '%';
+    }
+
+    // ── Render ────────────────────────────────────────────────────────────────
+
+    function renderTemplates() {
+      const list = document.getElementById('template-list');
+      list.innerHTML = '';
+      templates.forEach(t => list.appendChild(buildCard(t)));
+    }
+
+    function buildCard(t) {
+      const card = document.createElement('div');
+      card.className = 'template-card';
+      card.dataset.id = t.id;
+
+      card.innerHTML = `
+        <div class="template-card-header">
+          <input class="template-name-input" type="text" placeholder="Template name" value="${escHtml(t.name)}" />
+          <div class="weight-group">
+            <span class="weight-label">Weight</span>
+            <input class="weight-input" type="number" min="0" step="1" value="${t.weight}" />
+            <span class="pct-badge">${pct(t.weight)}</span>
+          </div>
+          <button class="btn-remove" title="Remove template">✕</button>
+        </div>
+        <textarea spellcheck="false">${escHtml(t.template)}</textarea>
+        <div class="template-hint">
+          <code>RandomString(N)</code> · <code>RandomInteger(MAX)</code> · <code>RandomDouble(MAX,DECIMALS)</code> · <code>OneOf(A;B;C)</code>
+        </div>
+      `;
+
+      const nameInput = card.querySelector('.template-name-input');
+      const weightInput = card.querySelector('.weight-input');
+      const pctBadge = card.querySelector('.pct-badge');
+      const textarea = card.querySelector('textarea');
+      const removeBtn = card.querySelector('.btn-remove');
+
+      nameInput.addEventListener('input', () => { t.name = nameInput.value; });
+      textarea.addEventListener('input', () => { t.template = textarea.value; });
+
+      weightInput.addEventListener('input', () => {
+        t.weight = parseFloat(weightInput.value) || 0;
+        refreshAllPctBadges();
+      });
+
+      removeBtn.addEventListener('click', () => {
+        if (templates.length <= 1) return;
+        templates = templates.filter(x => x.id !== t.id);
+        renderTemplates();
+      });
+
+      return card;
+    }
+
+    function refreshAllPctBadges() {
+      document.querySelectorAll('.template-card').forEach(card => {
+        const t = templates.find(x => x.id === card.dataset.id);
+        if (!t) return;
+        card.querySelector('.pct-badge').textContent = pct(t.weight);
+      });
+    }
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function addTemplate() {
+      templates.push({
+        id: uid(),
+        name: 'Template ' + (templates.length + 1),
+        weight: 1,
+        template: JSON.stringify({ field1: 'RandomString(10)' }, null, 2),
+      });
+      renderTemplates();
+      refreshAllPctBadges();
+    }
+
+    // ── Apply templates ───────────────────────────────────────────────────────
+
+    async function applyTemplates() {
+      // Sync textarea values into state (DOM is source of truth while editing)
+      document.querySelectorAll('.template-card').forEach(card => {
+        const t = templates.find(x => x.id === card.dataset.id);
+        if (!t) return;
+        t.name = card.querySelector('.template-name-input').value;
+        t.weight = parseFloat(card.querySelector('.weight-input').value) || 0;
+        t.template = card.querySelector('textarea').value;
+      });
+
+      for (const t of templates) {
+        try { JSON.parse(t.template); }
+        catch (e) {
+          showStatus('template-status', `Invalid JSON in "${t.name}": ${e.message}`, 'err');
+          return;
+        }
+      }
+
+      try {
+        const res = await fetch('/app/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ templates }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showStatus('template-status', 'Templates applied', 'ok');
+      } catch (e) {
+        showStatus('template-status', 'Error: ' + e.message, 'err');
+      }
+    }
+
+    // ── App toggle ────────────────────────────────────────────────────────────
+
+    let appRunning = false;
+
+    async function toggleApp() {
+      const next = !appRunning;
+      try {
+        const res = await fetch('/app/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ running: next }),
+        });
+        const data = await res.json();
+        setRunning(data.running);
+      } catch (e) {
+        showStatus('config-status', 'Error: ' + e.message, 'err');
+      }
+    }
+
+    function setRunning(running) {
+      appRunning = running;
+      const btn = document.getElementById('toggle-btn');
+      if (running) { btn.textContent = '⏹ Stop'; btn.className = 'btn-stop'; }
+      else         { btn.textContent = '▶ Start'; btn.className = 'btn-start'; }
+    }
+
+    // ── Config sliders ────────────────────────────────────────────────────────
+
+    function showStatus(id, msg, cls) {
+      const el = document.getElementById(id);
+      el.textContent = msg;
+      el.className = 'config-status ' + (cls || '');
+      if (cls === 'ok') setTimeout(() => { el.textContent = ''; el.className = 'config-status'; }, 2000);
+    }
+
+    async function sendConfig(body) {
+      try {
+        const res = await fetch('/app/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showStatus('config-status', 'Saved', 'ok');
+      } catch (e) {
+        showStatus('config-status', 'Error: ' + e.message, 'err');
+      }
+    }
+
+    (() => {
+      const slider = document.getElementById('intervalMs-slider');
+      const numInput = document.getElementById('intervalMs-input');
+      slider.addEventListener('input', () => { numInput.value = slider.value; });
+      slider.addEventListener('change', () => { numInput.value = slider.value; sendConfig({ intervalMs: parseInt(slider.value) }); });
+      numInput.addEventListener('change', () => {
+        const v = Math.max(25, parseInt(numInput.value) || 25);
+        numInput.value = v; slider.value = Math.min(v, 10000);
+        sendConfig({ intervalMs: v });
+      });
+    })();
+
+    ['errorRateOmit', 'errorRateCorrupt', 'errorRateInject'].forEach(field => {
+      const slider = document.getElementById(`${field}-slider`);
+      const display = document.getElementById(`${field}-val`);
+      slider.addEventListener('input', () => { display.textContent = parseFloat(slider.value).toFixed(2); });
+      slider.addEventListener('change', () => { sendConfig({ [field]: parseFloat(slider.value) }); });
+    });
+
+    // ── Load initial config ───────────────────────────────────────────────────
+
+    async function loadConfig() {
+      try {
+        const res = await fetch('/app/config');
+        if (!res.ok) return;
+        const cfg = await res.json();
+
+        if (cfg.intervalMs !== undefined) {
+          document.getElementById('intervalMs-slider').value = Math.min(cfg.intervalMs, 10000);
+          document.getElementById('intervalMs-input').value = cfg.intervalMs;
+        }
+        ['errorRateOmit', 'errorRateCorrupt', 'errorRateInject'].forEach(f => {
+          if (cfg[f] !== undefined) {
+            document.getElementById(`${f}-slider`).value = cfg[f];
+            document.getElementById(`${f}-val`).textContent = parseFloat(cfg[f]).toFixed(2);
+          }
+        });
+        if (Array.isArray(cfg.templates) && cfg.templates.length) {
+          templates = cfg.templates.map(t => ({ ...t, id: t.id || uid() }));
+          renderTemplates();
+        }
+        if (cfg.publishedCount !== undefined) document.getElementById('published-count').textContent = cfg.publishedCount;
+        setRunning(!!cfg.running);
+      } catch {}
+    }
+
+    // ── Output log ────────────────────────────────────────────────────────────
+
+    async function refreshLog() {
+      const statusEl = document.getElementById('output-status');
+      statusEl.textContent = 'Loading…';
+      try {
+        const res = await fetch('/app/buffer');
+        const entries = await res.json();
+        const log = document.getElementById('output-log');
+
+        if (!entries.length) {
+          log.innerHTML = '<span class="empty-log">No messages yet…</span>';
+          statusEl.textContent = '';
+          return;
+        }
+
+        log.innerHTML = '';
+        for (const e of entries) {
+          const div = document.createElement('div');
+          div.className = 'log-entry' + (e.errors && e.errors.length ? ' has-error' : '');
+
+          const meta = document.createElement('div');
+          meta.className = 'log-meta';
+
+          const ts = document.createElement('span');
+          ts.className = 'log-ts';
+          ts.textContent = e.timestamp;
+          meta.appendChild(ts);
+
+          if (e.templateName) {
+            const tplBadge = document.createElement('span');
+            tplBadge.className = 'log-tpl';
+            tplBadge.textContent = e.templateName;
+            meta.appendChild(tplBadge);
+          }
+
+          if (e.errors && e.errors.length) {
+            e.errors.forEach(err => {
+              const b = document.createElement('span');
+              b.className = `error-badge badge-${err}`;
+              b.textContent = err;
+              meta.appendChild(b);
+            });
+          }
+
+          div.appendChild(meta);
+
+          const payload = document.createElement('div');
+          payload.className = 'log-payload';
+          payload.textContent = JSON.stringify(e.payload, null, 2);
+          div.appendChild(payload);
+
+          log.appendChild(div);
+        }
+        statusEl.textContent = `${entries.length} entries`;
+      } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function pollCount() {
+      try {
+        const res = await fetch('/app/config');
+        if (!res.ok) return;
+        const cfg = await res.json();
+        if (cfg.publishedCount !== undefined)
+          document.getElementById('published-count').textContent = cfg.publishedCount;
+        setRunning(!!cfg.running);
+      } catch {}
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+
+    renderTemplates();
+    loadConfig();
+    setInterval(refreshLog, 2000);
+    setInterval(pollCount, 2000);
+  </script>
+</body>
+</html>
