@@ -39,6 +39,7 @@ class AlertType(str, Enum):
 class AnomalyType(str, Enum):
     TIMEOUT = "TIMEOUT"
     SCORE = "SCORE"
+    RULE = "RULE"
 
 
 @dataclass

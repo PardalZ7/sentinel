@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
+from sentinel.agent.use_cases.denial_rules import evaluate_denial_rules
 from sentinel.agent.use_cases.train import should_train
 from sentinel.config.schema import AgentConfig
 from sentinel.domain.models import (
@@ -202,6 +203,42 @@ async def _handle_timeout(
     return state
 
 
+async def _handle_denial_rule_hit(
+    pair: CorrelatedPair,
+    event_dict: dict[str, Any],
+    agent_config: AgentConfig,
+    state: AgentState,
+    reporter: IReporter,
+    rule_name: str,
+    score: float,
+) -> AgentState:
+    schema_hash = event_dict["payload_schema_hash"]
+    event = ProcessedEvent(
+        agent_name=agent_config.name,
+        correlation_id=pair.correlation_id,
+        input_received_at=pair.input_received_at,
+        output_sent_at=pair.output_received_at,
+        processing_latency_ms=pair.processing_latency_ms,
+        anomaly_score=score,
+        is_anomaly=True,
+        anomaly_type=AnomalyType.RULE,
+        payload_schema_hash=schema_hash,
+        input_size_bytes=pair.input_size_bytes,
+        output_size_bytes=pair.output_size_bytes,
+        input_body=pair.input_body,
+        output_body=pair.output_body,
+    )
+    try:
+        await reporter.publish_event(event)
+    except Exception as exc:
+        logger.warning("reporter_unavailable", error=str(exc))
+    return replace(
+        state,
+        message_count=state.message_count + 1,
+        error_count=state.error_count + 1,
+    )
+
+
 async def _score_and_train(
     pair: CorrelatedPair,
     event_dict: dict[str, Any],
@@ -211,6 +248,19 @@ async def _score_and_train(
     reporter: IReporter,
 ) -> AgentState:
     """Score via all INFERENCE detectors, accumulate TRAINING samples, and publish."""
+    # ── Denial rules: deterministic business-rule checks before ML detectors ─
+    denial_hit = evaluate_denial_rules(agent_config.denial_rules, event_dict)
+    if denial_hit:
+        return await _handle_denial_rule_hit(
+            pair=pair,
+            event_dict=event_dict,
+            agent_config=agent_config,
+            state=state,
+            reporter=reporter,
+            rule_name=denial_hit.rule_name,
+            score=denial_hit.score,
+        )
+
     worst_anomaly_score = 0.0
     detected_anomaly = False
     new_detectors = dict(state.detectors)

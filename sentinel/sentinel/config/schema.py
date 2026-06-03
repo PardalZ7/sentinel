@@ -208,6 +208,30 @@ class CorrelationEngineConfig(BaseModel):
         return self.output_correlation_field or self.correlation_field
 
 
+class DenialRuleConfig(BaseModel):
+    """A deterministic business-rule check evaluated before ML detectors.
+
+    If the condition evaluates to True, the event is immediately flagged as
+    anomalous (AnomalyType.RULE) and detectors are bypassed.
+
+    Condition syntax:
+      - Field references: dot-notation prefixed with "input." or "output."
+        (e.g. "output.status", "input.amount"). Flat event fields (e.g.
+        "processing_latency_ms") are also valid.
+      - Operators: ==, !=, >, <, and, or
+      - required(field): True if the field is ABSENT or None (constraint violated).
+
+    Examples:
+      "required(output.result)"
+      "output.status == 'success' and output.result == null"
+      "required(input.amount) and input.amount > 0"
+    """
+
+    name: str
+    condition: str
+    score: float = -1.0
+
+
 class AgentConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -219,6 +243,7 @@ class AgentConfig(BaseModel):
     reporting: ReportingConfig = Field(default_factory=ReportingConfig)
     test_buffer_size: int | None = None  # overrides default test_buffer_size for synthesised IF detector
     detectors: list[DetectorConfig] = Field(default_factory=list)
+    denial_rules: list[DenialRuleConfig] = Field(default_factory=list)
 
 
 class AdaptationConfig(BaseModel):
