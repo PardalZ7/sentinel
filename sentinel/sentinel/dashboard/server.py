@@ -66,9 +66,6 @@ def _config_fingerprint(config: dict) -> str:
             [
                 {
                     "name": a["name"],
-                    "correlation_mode": a.get("correlation_mode", "normal"),
-                    "input_correlation_field": a.get("input_correlation_field"),
-                    "output_correlation_field": a.get("output_correlation_field"),
                 }
                 for a in sentinel.get("agents", [])
             ],

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from sentinel.agent.use_cases import process_pair
-from sentinel.agent.use_cases.correlate import store_input_capture, resolve_pair
+from sentinel.agent.use_cases.correlate import store_input_capture, try_build_pair
 from sentinel.config.schema import AgentConfig, CorrelationEngineConfig, InputConfig, ReportingConfig, TransportResourceConfig
 from sentinel.domain.models import AnomalyType, CorrelatedPair, ModelPhase, ProcessedEvent, RawMessage
 from sentinel.domain.ports.correlation_store import ICorrelationStore
@@ -36,6 +36,15 @@ class MockCorrelationStore(ICorrelationStore):
         existing[source_name] = event_snapshot
         self._store[key] = existing
         return existing
+
+    async def try_claim_complete_group(self, key, expected_sources):
+        group = self._store.get(key)
+        if group is None:
+            return False
+        if any(group.get(s) is None for s in expected_sources):
+            return False
+        self._store.pop(key)
+        return True
 
 
 class MockModelStore(IModelStore):
@@ -125,8 +134,10 @@ def _agent_config(send_all=True):
 def _engine_config():
     return CorrelationEngineConfig(
         name="agent01",
-        inputs=[InputConfig(name="request", transport=TransportResourceConfig(type="sqs", resource="http://sqs/queue"))],
-        correlation_field="correlationId",
+        inputs=[
+            InputConfig(name="request",  transport=TransportResourceConfig(type="sqs", resource="http://sqs/in"),  correlation_field="correlationId"),
+            InputConfig(name="response", transport=TransportResourceConfig(type="sqs", resource="http://sqs/out"), correlation_field="correlationId"),
+        ],
         correlation_ttl_s=300,
     )
 
@@ -200,38 +211,46 @@ async def test_store_request_persists():
 async def test_store_request_missing_field():
     store = MockCorrelationStore()
     config = _engine_config()
-    await store_input_capture(store, config, _input_cfg(config), _make_raw({"no_correlation": "here"}))
+    cid, group = await store_input_capture(store, config, _input_cfg(config), _make_raw({"no_correlation": "here"}))
+    assert cid is None
+    assert group is None
     assert len(store._store) == 0
 
 
 @pytest.mark.asyncio
-async def test_resolve_pair_normal_path():
+async def test_build_pair_normal_path():
     store = MockCorrelationStore()
     config = _engine_config()
-    input_body = {"correlationId": "corr-2", "data": "input"}
-    await store_input_capture(store, config, _input_cfg(config), _make_raw(input_body))
-
-    output_body = {"correlationId": "corr-2", "data": "output"}
+    input_ts  = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     output_ts = datetime(2024, 1, 1, 12, 0, 1, tzinfo=timezone.utc)
-    pair = await resolve_pair(store, config, _make_raw(output_body, ts=output_ts))
+
+    input_body  = {"correlationId": "corr-2", "data": "input"}
+    output_body = {"correlationId": "corr-2", "data": "output"}
+
+    request_cfg  = config.inputs[0]
+    response_cfg = config.inputs[1]
+
+    cid, _ = await store_input_capture(store, config, request_cfg,  _make_raw(input_body,  ts=input_ts))
+    cid, group = await store_input_capture(store, config, response_cfg, _make_raw(output_body, ts=output_ts))
+
+    pair = await try_build_pair(store, config, cid, group)
 
     assert pair is not None
     assert pair.correlation_id == "corr-2"
     assert pair.processing_latency_ms == pytest.approx(1000.0, abs=10)
     assert pair.timed_out is False
-    # key deleted in normal mode
-    assert await store.get("agent01:corr-2") is None
+    assert await store.get("agent01:corr-2") is None  # key deleted after claim
 
 
 @pytest.mark.asyncio
-async def test_resolve_pair_timeout():
+async def test_build_pair_incomplete():
     store = MockCorrelationStore()
     config = _engine_config()
-    # no store_request call → simulates expired TTL
-    output_body = {"correlationId": "expired-corr"}
-    pair = await resolve_pair(store, config, _make_raw(output_body))
-    assert pair is not None
-    assert pair.timed_out is True
+    body = {"correlationId": "corr-3", "data": "input"}
+    # only request stored — response missing
+    cid, group = await store_input_capture(store, config, config.inputs[0], _make_raw(body))
+    pair = await try_build_pair(store, config, cid, group)
+    assert pair is None  # group incomplete
 
 
 # ── process_pair — normal scoring path ───────────────────────────────────────

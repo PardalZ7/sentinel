@@ -41,3 +41,18 @@ class ICorrelationStore(ABC):
         each other.
         """
         ...
+
+    @abstractmethod
+    async def try_claim_complete_group(
+        self,
+        key: str,
+        expected_sources: list[str],
+    ) -> bool:
+        """Atomically check if all sources are present and, if so, delete the key.
+
+        Returns True if the group was complete and this call claimed (deleted) it.
+        Returns False if the group is incomplete, missing, or already claimed by
+        another concurrent caller. Only one concurrent caller will get True for
+        a given key.
+        """
+        ...

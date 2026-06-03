@@ -174,38 +174,35 @@ class InputConfig(BaseModel):
 
     transport: TransportResourceConfig = Field(default_factory=TransportResourceConfig)
     name: str
-    correlation_field: str | None = None
+    correlation_field: str = "correlationId"
+    correlation_mode: Literal["normal", "grouping"] = "normal"
 
 
 class CorrelationEngineConfig(BaseModel):
     """Configuration for a CorrelationEngine instance running on the use-case side.
 
-    The engine consumes N input queues and one output queue, correlates messages via
-    Redis, and publishes CorrelatedPair objects to one or more destination queues.
-    All N inputs must arrive for a given correlationId before the pair is published.
+    The engine consumes N input queues (all streams — inputs and outputs of the monitored
+    application — are declared as inputs). Messages are buffered in Redis until all N
+    inputs arrive for a given correlationId, then a CorrelatedPair is published to the
+    destination queues.
 
-    On timeout (output arrives but not all inputs found), a notification is sent
-    to timeout_topic_arn if configured; otherwise the event is logged and dropped.
+    Each input declares its own correlation_field and correlation_mode. grouping mode
+    means one message contributes multiple correlationIds (batch streams).
     """
 
     model_config = ConfigDict(extra="ignore")
 
     name: str
     inputs: list[InputConfig] = Field(default_factory=list, min_length=1)
-    output: TransportResourceConfig = Field(default_factory=TransportResourceConfig)
-    correlation_field: str = "correlationId"
-    output_correlation_field: str | None = None
-    correlation_mode: Literal["normal", "grouping", "splitting"] = "normal"
     correlation_ttl_s: int = 300
     destinations: list[TransportResourceConfig] = Field(default_factory=list)
     timeout_topic_arn: str | None = None
 
     def effective_input_field(self, input_cfg: InputConfig) -> str:
-        return input_cfg.correlation_field or self.correlation_field
+        return input_cfg.correlation_field
 
-    @property
-    def effective_output_field(self) -> str:
-        return self.output_correlation_field or self.correlation_field
+    def effective_input_mode(self, input_cfg: InputConfig) -> str:
+        return input_cfg.correlation_mode
 
 
 class DenialRuleConfig(BaseModel):

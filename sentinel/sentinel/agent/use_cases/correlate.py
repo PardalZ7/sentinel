@@ -15,11 +15,14 @@
 """Correlation use case for CorrelationEngine.
 
 Responsible for:
-  1. Storing incoming input captures keyed by correlation ID (store_input_capture)
-  2. Resolving an output message against all stored inputs, producing a CorrelatedPair
-     (resolve_pair / resolve_pairs for grouping mode)
+  1. Storing incoming input captures keyed by correlation ID (store_input_capture /
+     store_input_captures_batch). Returns the group snapshot from Redis so the caller
+     can immediately check completeness without a second round-trip.
+  2. Building a CorrelatedPair once ALL expected inputs have arrived (try_build_pair).
+     Uses an atomic claim (try_claim_complete_group) so only one concurrent loop ever
+     publishes a pair for a given correlationId.
 
-All N inputs for a given correlationId must arrive before a pair is emitted.
+Resolution is triggered from the input loop — there is no separate output loop.
 The Agent has no dependency on this module — it only consumes CorrelatedPair.
 """
 
@@ -43,13 +46,8 @@ async def store_input_capture(
     config: CorrelationEngineConfig,
     input_cfg: InputConfig,
     message: RawMessage,
-) -> str | None:
-    """Store one input stream's capture for a correlationId. Returns the ID or None.
-
-    Uses record_group_source so concurrent arrivals from different input streams
-    are merged atomically. The output loop will only resolve once all N inputs
-    are present in the group.
-    """
+) -> tuple[str, dict] | tuple[None, None]:
+    """Store one input stream's capture. Returns (correlation_id, updated_group) or (None, None)."""
     field = config.effective_input_field(input_cfg)
     correlation_id = extract_correlation_id(message.body, field)
     if not correlation_id:
@@ -61,7 +59,7 @@ async def store_input_capture(
             body_keys=list(message.body.keys()) if isinstance(message.body, dict) else type(message.body).__name__,
             body_preview=str(message.body)[:200],
         )
-        return None
+        return None, None
 
     key = make_correlation_key(config.name, correlation_id)
     data = {
@@ -70,8 +68,8 @@ async def store_input_capture(
         "size_bytes": message.size_bytes,
     }
     expected_names = [inp.name for inp in config.inputs]
-    await store.record_group_source(key, input_cfg.name, data, expected_names, config.correlation_ttl_s)
-    return correlation_id
+    group = await store.record_group_source(key, input_cfg.name, data, expected_names, config.correlation_ttl_s)
+    return correlation_id, group
 
 
 async def store_input_captures_batch(
@@ -79,11 +77,10 @@ async def store_input_captures_batch(
     config: CorrelationEngineConfig,
     input_cfg: InputConfig,
     message: RawMessage,
-) -> list[str]:
+) -> list[tuple[str, dict]]:
     """Grouping-mode: store multiple correlationIds from one batch message.
 
-    Each ID in the batch gets its own group entry for this input stream.
-    Returns the list of stored IDs, or [] if none were found.
+    Returns list of (correlation_id, updated_group) pairs, one per ID stored.
     """
     field = config.effective_input_field(input_cfg)
     correlation_ids = extract_correlation_ids(message.body, field)
@@ -104,118 +101,48 @@ async def store_input_captures_batch(
         "size_bytes": message.size_bytes,
     }
     expected_names = [inp.name for inp in config.inputs]
+    results: list[tuple[str, dict]] = []
     for correlation_id in correlation_ids:
         key = make_correlation_key(config.name, correlation_id)
-        await store.record_group_source(key, input_cfg.name, data, expected_names, config.correlation_ttl_s)
+        group = await store.record_group_source(key, input_cfg.name, data, expected_names, config.correlation_ttl_s)
+        results.append((correlation_id, group))
 
-    return correlation_ids
-
-
-async def resolve_pair(
-    store: ICorrelationStore,
-    config: CorrelationEngineConfig,
-    message: RawMessage,
-) -> CorrelatedPair | None:
-    """Match output with all stored inputs. Returns CorrelatedPair or None on timeout.
-
-    Handles normal and splitting modes. For grouping mode use resolve_pairs().
-    Key is deleted after match in normal mode; kept alive via TTL in splitting mode.
-    """
-    correlation_id = extract_correlation_id(message.body, config.effective_output_field)
-    if not correlation_id:
-        logger.warning(
-            "missing_correlation_id_on_output",
-            engine=config.name,
-            field=config.effective_output_field,
-        )
-        return None
-
-    return await _resolve_single(
-        store=store,
-        config=config,
-        correlation_id=correlation_id,
-        message=message,
-        delete_key=(config.correlation_mode == "normal"),
-    )
+    return results
 
 
-async def resolve_pairs(
-    store: ICorrelationStore,
-    config: CorrelationEngineConfig,
-    message: RawMessage,
-) -> list[CorrelatedPair]:
-    """Grouping mode: one output message resolves multiple stored input groups.
-
-    The output body must contain a list of correlation IDs at config.correlation_field.
-    Each ID is resolved independently and the key is deleted after match.
-    """
-    ids = extract_correlation_ids(message.body, config.effective_output_field)
-    if not ids:
-        logger.warning(
-            "missing_correlation_ids_on_output",
-            engine=config.name,
-            field=config.effective_output_field,
-        )
-        return []
-
-    pairs: list[CorrelatedPair] = []
-    for cid in ids:
-        pair = await _resolve_single(
-            store=store,
-            config=config,
-            correlation_id=cid,
-            message=message,
-            delete_key=True,
-        )
-        if pair is not None:
-            pairs.append(pair)
-    return pairs
+def _is_group_complete(group: dict, config: CorrelationEngineConfig) -> bool:
+    """Return True if all expected inputs are present (non-null) in the group."""
+    for inp_cfg in config.inputs:
+        if not group.get(inp_cfg.name):
+            return False
+    return True
 
 
-async def _resolve_single(
+async def try_build_pair(
     store: ICorrelationStore,
     config: CorrelationEngineConfig,
     correlation_id: str,
-    message: RawMessage,
-    delete_key: bool,
+    group: dict,
 ) -> CorrelatedPair | None:
+    """Attempt to build a CorrelatedPair from the given group snapshot.
+
+    First checks completeness in-memory (no Redis round-trip). If complete,
+    performs an atomic claim (try_claim_complete_group) to ensure only one
+    concurrent caller builds and publishes the pair. Returns None if the group
+    is incomplete or another caller already claimed it.
+    """
+    if not _is_group_complete(group, config):
+        return None
+
     key = make_correlation_key(config.name, correlation_id)
-    group = await store.get(key)
+    expected_names = [inp.name for inp in config.inputs]
+    claimed = await store.try_claim_complete_group(key, expected_names)
+    if not claimed:
+        return None
 
-    if group is None:
-        logger.warning("correlation_timeout", engine=config.name, key=key)
-        return CorrelatedPair(
-            engine_name=config.name,
-            correlation_id=correlation_id,
-            inputs=[],
-            output_body=message.body,
-            output_received_at=message.received_at,
-            output_size_bytes=message.size_bytes,
-            processing_latency_ms=0.0,
-            timed_out=True,
-        )
-
-    # Build InputCapture list; if any expected input is missing the pair is not ready yet.
     captures: list[InputCapture] = []
     for inp_cfg in config.inputs:
-        inp_data = group.get(inp_cfg.name)
-        if inp_data is None:
-            logger.warning(
-                "correlation_incomplete",
-                engine=config.name,
-                key=key,
-                missing_input=inp_cfg.name,
-            )
-            return CorrelatedPair(
-                engine_name=config.name,
-                correlation_id=correlation_id,
-                inputs=[],
-                output_body=message.body,
-                output_received_at=message.received_at,
-                output_size_bytes=message.size_bytes,
-                processing_latency_ms=0.0,
-                timed_out=True,
-            )
+        inp_data = group[inp_cfg.name]
         captures.append(InputCapture(
             name=inp_cfg.name,
             body=inp_data.get("body", {}),
@@ -224,18 +151,16 @@ async def _resolve_single(
         ))
 
     first_received = min(c.received_at for c in captures)
-    latency_ms = (message.received_at - first_received).total_seconds() * 1000.0
-
-    if delete_key:
-        await store.delete(key)
+    last_received = max(c.received_at for c in captures)
+    latency_ms = (last_received - first_received).total_seconds() * 1000.0
 
     return CorrelatedPair(
         engine_name=config.name,
         correlation_id=correlation_id,
         inputs=captures,
-        output_body=message.body,
-        output_received_at=message.received_at,
-        output_size_bytes=message.size_bytes,
+        output_body={},
+        output_received_at=last_received,
+        output_size_bytes=0,
         processing_latency_ms=latency_ms,
         timed_out=False,
     )

@@ -31,11 +31,8 @@
       {
         "name": "engine01",
         "inputs": [
-          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample" } }
+          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample" }, "correlation_field": "correlationId", "correlation_mode": "normal" }
         ],
-        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample" },
-        "correlation_field": "correlationId",
-        "correlation_mode": "normal",
         "correlation_ttl_s": 180,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample_pairs" }

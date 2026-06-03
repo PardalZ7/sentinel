@@ -48,6 +48,26 @@ redis.call('SETEX', KEYS[1], tonumber(ARGV[4]), encoded)
 return encoded
 """
 
+# Atomically claims a complete group: checks all expected sources are present
+# (non-null), deletes the key, and returns 1. Returns 0 if incomplete or gone.
+# KEYS[1]  = Redis key
+# ARGV[1]  = JSON-encoded list of expected source names
+_TRY_CLAIM_COMPLETE_GROUP_LUA = """
+local existing = redis.call('GET', KEYS[1])
+if existing == false then
+    return 0
+end
+local group = cjson.decode(existing)
+local sources = cjson.decode(ARGV[1])
+for _, s in ipairs(sources) do
+    if group[s] == nil or group[s] == cjson.null then
+        return 0
+    end
+end
+redis.call('DEL', KEYS[1])
+return 1
+"""
+
 
 class RedisCorrelationStore(ICorrelationStore):
     """ICorrelationStore implementation using redis.asyncio."""
@@ -59,6 +79,7 @@ class RedisCorrelationStore(ICorrelationStore):
         self._password = password
         self._client = None
         self._record_group_script = None
+        self._try_claim_script = None
 
     def _get_client(self):
         if self._client is None:
@@ -132,6 +153,24 @@ class RedisCorrelationStore(ICorrelationStore):
             return json.loads(result)
         except Exception as exc:
             raise RedisUnavailableError(f"Redis record_group_source failed: {exc}") from exc
+
+    async def try_claim_complete_group(
+        self,
+        key: str,
+        expected_sources: list[str],
+    ) -> bool:
+        """Atomically claim a complete group via a Lua script. Returns True if claimed."""
+        client = self._get_client()
+        try:
+            if self._try_claim_script is None:
+                self._try_claim_script = client.register_script(_TRY_CLAIM_COMPLETE_GROUP_LUA)
+            result = await self._try_claim_script(
+                keys=[key],
+                args=[json.dumps(expected_sources)],
+            )
+            return bool(result)
+        except Exception as exc:
+            raise RedisUnavailableError(f"Redis try_claim_complete_group failed: {exc}") from exc
 
     async def close(self) -> None:
         """Close the Redis connection."""

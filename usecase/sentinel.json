@@ -46,60 +46,51 @@
 
     "correlation_engines": [
       {
-        "_comment": "engine01 — APP02 enricher (1 input, 180s). Correlates one input stream against the output.",
+        "_comment": "engine01 — APP02 enricher (2 inputs, 180s). Correlates request and response streams.",
         "name": "engine01",
         "inputs": [
-          { "name": "request", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-in" } }
+          { "name": "request",  "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-in"  }, "correlation_field": "correlationId", "correlation_mode": "normal" },
+          { "name": "response", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-out" }, "correlation_field": "correlationId", "correlation_mode": "normal" }
         ],
-        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-out" },
-        "correlation_field": "correlationId",
-        "correlation_mode": "normal",
         "correlation_ttl_s": 180,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-pairs" }
         ]
       },
       {
-        "_comment": "engine02 — APP03 batcher (1 input, grouping, 1800s). One batch input (records[*].correlationId) → one batch output.",
+        "_comment": "engine02 — APP03 batcher (2 inputs, 1800s). Batch input (correlationId) and batch output (records[*].correlationId).",
         "name": "engine02",
         "inputs": [
-          { "name": "batch", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-in" } }
+          { "name": "batch_in",  "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-in"  }, "correlation_field": "correlationId",         "correlation_mode": "normal"   },
+          { "name": "batch_out", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-out" }, "correlation_field": "records.correlationId", "correlation_mode": "grouping" }
         ],
-        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-out" },
-        "correlation_field": "correlationId",
-        "output_correlation_field": "records.correlationId",
-        "correlation_mode": "grouping",
         "correlation_ttl_s": 1800,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-pairs" }
         ]
       },
       {
-        "_comment": "engine03 — multi-step pipeline (2 inputs, 600s). Both APP02 output and auth event must arrive before the APP04 output.",
+        "_comment": "engine03 — multi-step pipeline (3 inputs, 600s). APP02 output, auth event, and APP04 output must all arrive.",
         "name": "engine03",
         "inputs": [
-          { "name": "app02_out", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in-app02" } },
-          { "name": "auth_event", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in-auth" } }
+          { "name": "app02_out",  "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in-app02" }, "correlation_field": "correlationId", "correlation_mode": "normal" },
+          { "name": "auth_event", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-in-auth"  }, "correlation_field": "correlationId", "correlation_mode": "normal" },
+          { "name": "app04_out",  "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out"      }, "correlation_field": "correlationId", "correlation_mode": "normal" }
         ],
-        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-out" },
-        "correlation_field": "correlationId",
-        "correlation_mode": "normal",
         "correlation_ttl_s": 600,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" }
         ]
       },
       {
-        "_comment": "engine04 — full pipeline (3 inputs, 900s). Request, enrichment, and payment must all arrive before the final output.",
+        "_comment": "engine04 — full pipeline (4 inputs, 900s). Request, enrichment, payment, and final output must all arrive.",
         "name": "engine04",
         "inputs": [
-          { "name": "request",     "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in-request"  } },
-          { "name": "enrichment",  "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in-enrich"   } },
-          { "name": "payment",     "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in-payment"  } }
+          { "name": "request",    "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in-request" }, "correlation_field": "correlationId", "correlation_mode": "normal" },
+          { "name": "enrichment", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in-enrich"  }, "correlation_field": "correlationId", "correlation_mode": "normal" },
+          { "name": "payment",    "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-in-payment" }, "correlation_field": "correlationId", "correlation_mode": "normal" },
+          { "name": "response",   "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-out"        }, "correlation_field": "correlationId", "correlation_mode": "normal" }
         ],
-        "output": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-out" },
-        "correlation_field": "correlationId",
-        "correlation_mode": "normal",
         "correlation_ttl_s": 900,
         "destinations": [
           { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" }

@@ -74,6 +74,13 @@
     .btn-remove { background: transparent; color: #6e7681; border: none; padding: 2px 6px; font-size: 14px; line-height: 1; }
     .btn-remove:hover { color: #f85149; background: transparent; }
 
+    .btn-topology {
+      background: #0d2a1a; color: #3fb950; border-color: #1f6b3a;
+      font-weight: 600; font-size: 12px; padding: 5px 12px;
+    }
+    .btn-topology:hover { background: #1f6b3a; color: #fff; }
+    .btn-topology:disabled { opacity: 0.5; cursor: not-allowed; }
+
     .config-group { display: flex; flex-direction: column; gap: 8px; }
     .config-label { display: flex; justify-content: space-between; align-items: center; color: #e6edf3; font-size: 13px; font-weight: 500; }
     .config-value { color: #58a6ff; font-family: monospace; font-size: 13px; font-weight: 600; min-width: 48px; text-align: right; }
@@ -209,6 +216,8 @@
   <header>
     <h1>Sentinel</h1>
     <span class="subtitle">Use Case 2 — Payload Generator</span>
+    <button class="btn-topology" id="topology-btn" onclick="generateTopology()" style="margin-left:auto;">⬡ Generate Topology</button>
+    <span id="topology-status" style="font-size:12px;color:#8b949e;"></span>
   </header>
 
   <div class="main">
@@ -605,6 +614,37 @@
           document.getElementById('published-count').textContent = cfg.publishedCount;
         setRunning(!!cfg.running);
       } catch {}
+    }
+
+    // ── Generate Topology ─────────────────────────────────────────────────────
+
+    async function generateTopology() {
+      const btn = document.getElementById('topology-btn');
+      const status = document.getElementById('topology-status');
+      btn.disabled = true;
+      status.textContent = 'Deploying topology…';
+      status.style.color = '#8b949e';
+      try {
+        const res = await fetch('/setup-topology', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          const agents = (data.body?.agents || []).join(', ') || '—';
+          const cortex = (data.body?.cortex || []).join(', ') || '—';
+          status.textContent = `Deployed ✓ agents:[${agents}] cortex:[${cortex}]`;
+          status.style.color = '#3fb950';
+        } else {
+          const msg = data.body?.error || data.body?.detail || JSON.stringify(data.body);
+          status.textContent = `Deploy failed: ${msg}`;
+          status.style.color = '#f85149';
+          console.error('[topology]', data);
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.style.color = '#f85149';
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => { status.textContent = ''; }, 6000);
+      }
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────

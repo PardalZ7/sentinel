@@ -1030,7 +1030,6 @@ def build_correlation_engine(
     """Wire up all dependencies for a CorrelationEngineRunner."""
     from sentinel.runtime.correlation_engine_runner import CorrelationEngineRunner
     from sentinel.adapters.queue.sqs_pair_publisher import SqsPairPublisher
-    from sentinel.adapters.alerting.sns_timeout_notifier import SnsTimeoutNotifier
 
     endpoint = sentinel_config.aws.endpoint_url
     region = sentinel_config.aws.region
@@ -1045,13 +1044,6 @@ def build_correlation_engine(
         )
         for inp_cfg in engine_config.inputs
     ]
-    output_transport = SqsSnsTransport(
-        endpoint_url=endpoint,
-        input_queue_url=engine_config.output.resource,
-        output_topic_arn="",
-        region=region,
-        wait_time_seconds=1,
-    )
     correlation_store = RedisCorrelationStore(
         host=sentinel_config.redis.host,
         port=sentinel_config.redis.port,
@@ -1066,22 +1058,11 @@ def build_correlation_engine(
         )
         for dest in engine_config.destinations
     ]
-    timeout_notifier = (
-        SnsTimeoutNotifier(
-            topic_arn=engine_config.timeout_topic_arn,
-            region=region,
-            endpoint_url=endpoint,
-        )
-        if engine_config.timeout_topic_arn
-        else None
-    )
     return CorrelationEngineRunner(
         engine_config=engine_config,
         input_transports=input_transports,
-        output_transport=output_transport,
         correlation_store=correlation_store,
         pair_publishers=pair_publishers,
-        timeout_notifier=timeout_notifier,
     )
 
 

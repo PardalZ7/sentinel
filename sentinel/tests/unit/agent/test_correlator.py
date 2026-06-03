@@ -23,7 +23,21 @@ class MockCorrelationStore(ICorrelationStore):
         self._store.pop(key, None)
 
     async def record_group_source(self, key, source, data, expected_sources, ttl_s):
-        pass
+        group = self._store.get(key)
+        if group is None:
+            group = {s: None for s in expected_sources}
+        group[source] = data
+        self._store[key] = group
+        return group
+
+    async def try_claim_complete_group(self, key, expected_sources):
+        group = self._store.get(key)
+        if group is None:
+            return False
+        if any(group.get(s) is None for s in expected_sources):
+            return False
+        self._store.pop(key)
+        return True
 
 
 # ── make_correlation_key ──────────────────────────────────────────────────────
