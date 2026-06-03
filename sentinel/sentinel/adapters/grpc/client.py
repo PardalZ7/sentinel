@@ -20,7 +20,7 @@ from grpc import aio
 
 from sentinel.adapters.grpc.generated import sentinel_pb2, sentinel_pb2_grpc
 from sentinel.domain.errors import GrpcUnavailableError
-from sentinel.domain.models import HeartbeatEvent, ProcessedEvent
+from sentinel.domain.models import HeartbeatEvent, ProcessedEvent, TemporalAnomalySignal, TemporalHeartbeatEvent
 from sentinel.domain.ports.reporter import IReporter
 from sentinel.logging.logger import get_logger
 
@@ -140,6 +140,94 @@ class GrpcReporter(IReporter):
             logger.warning(
                 "grpc_publish_heartbeat_failed",
                 agent=heartbeat.agent_name,
+                error=str(exc),
+            )
+            self._standalone = True
+            self._channel = None
+            self._stub = None
+            await asyncio.sleep(min(self._backoff_s, _MAX_BACKOFF_S))
+            self._backoff_s = min(self._backoff_s * 2, _MAX_BACKOFF_S)
+
+    async def publish_temporal_heartbeat(self, event: TemporalHeartbeatEvent) -> None:
+        """Send a TemporalHeartbeatEvent to the Cortex via gRPC."""
+        if self._standalone:
+            logger.info("grpc_standalone_mode_temporal_heartbeat", layer=event.layer_name)
+            connected = await self._try_connect()
+            if not connected:
+                return
+            self._standalone = False
+            self._backoff_s = 1.0
+
+        proto = sentinel_pb2.TemporalHeartbeatProto(
+            layer_name=event.layer_name,
+            timestamp_ms=_to_ms(event.timestamp),
+            window_start_ms=_to_ms(event.window_start),
+            window_end_ms=_to_ms(event.window_end),
+            agents_monitored=event.agents_monitored,
+            total_events_in_window=event.total_events_in_window,
+            anomaly_rate=event.anomaly_rate,
+            avg_score=event.avg_score,
+            avg_latency_ms=event.avg_latency_ms,
+            bucket_confidence=event.bucket_confidence,
+            model_phase=event.model_phase.value,
+        )
+
+        try:
+            stub = self._get_stub()
+            await stub.ReportTemporalHeartbeat(proto)
+            self._backoff_s = 1.0
+        except grpc.aio.AioRpcError as exc:
+            logger.warning(
+                "grpc_publish_temporal_heartbeat_failed",
+                layer=event.layer_name,
+                error=str(exc),
+            )
+            self._standalone = True
+            self._channel = None
+            self._stub = None
+            await asyncio.sleep(min(self._backoff_s, _MAX_BACKOFF_S))
+            self._backoff_s = min(self._backoff_s * 2, _MAX_BACKOFF_S)
+
+    async def publish_temporal_anomaly_signal(self, signal: TemporalAnomalySignal) -> None:
+        """Send a TemporalAnomalySignal to the Cortex via gRPC."""
+        if self._standalone:
+            logger.info("grpc_standalone_mode_temporal_anomaly_signal", layer=signal.layer_name)
+            connected = await self._try_connect()
+            if not connected:
+                return
+            self._standalone = False
+            self._backoff_s = 1.0
+
+        flags = sentinel_pb2.TemporalAnomalyFlagsProto(
+            is_rate_anomaly=signal.is_rate_anomaly,
+            is_volume_anomaly=signal.is_volume_anomaly,
+            is_score_anomaly=signal.is_score_anomaly,
+            is_latency_anomaly=signal.is_latency_anomaly,
+        )
+        proto = sentinel_pb2.TemporalAnomalySignalProto(
+            layer_name=signal.layer_name,
+            window_start_ms=_to_ms(signal.window_start),
+            window_end_ms=_to_ms(signal.window_end),
+            hour_of_week=signal.hour_of_week,
+            anomaly_rate=signal.anomaly_rate,
+            anomaly_rate_z=signal.anomaly_rate_z,
+            volume=signal.volume,
+            volume_z=signal.volume_z,
+            avg_score_z=signal.avg_score_z,
+            avg_latency_z=signal.avg_latency_z,
+            flags=flags,
+            contributing_agents=signal.contributing_agents,
+            bucket_confidence=signal.bucket_confidence,
+        )
+
+        try:
+            stub = self._get_stub()
+            await stub.ReportTemporalAnomalySignal(proto)
+            self._backoff_s = 1.0
+        except grpc.aio.AioRpcError as exc:
+            logger.warning(
+                "grpc_publish_temporal_anomaly_signal_failed",
+                layer=signal.layer_name,
                 error=str(exc),
             )
             self._standalone = True

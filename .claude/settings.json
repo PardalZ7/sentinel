@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-obsidian",
+        "C:\\Projects\\Obsidian\\AI Projects"
+      ]
+    }
+  }
+}

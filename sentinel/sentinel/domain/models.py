@@ -19,6 +19,7 @@ from enum import Enum
 
 class ModelPhase(str, Enum):
     TRAINING = "TRAINING"
+    WARMUP = "WARMUP"
     INFERENCE = "INFERENCE"
     COLD = "COLD"
 
@@ -128,6 +129,68 @@ class CorrelatedPair:
         if len(self.inputs) == 1:
             return self.inputs[0].body
         return {inp.name: inp.body for inp in self.inputs}
+
+
+@dataclass
+class SeasonalBucket:
+    n_observations: int = 0
+    mean_anomaly_rate: float = 0.0
+    var_anomaly_rate: float = 0.0
+    mean_volume: float = 0.0
+    var_volume: float = 0.0
+    mean_avg_score: float = 0.0
+    var_avg_score: float = 0.0
+    mean_avg_latency_ms: float = 0.0
+    var_avg_latency_ms: float = 0.0
+
+
+@dataclass
+class WindowSnapshot:
+    layer_name: str
+    window_start: datetime
+    window_end: datetime
+    bucket_index: int
+    total_events: int
+    anomaly_count: int
+    anomaly_rate: float
+    avg_score: float
+    avg_latency_ms: float
+    contributing_agents: list[str]
+
+
+@dataclass
+class TemporalHeartbeatEvent:
+    layer_name: str
+    timestamp: datetime
+    window_start: datetime
+    window_end: datetime
+    agents_monitored: list[str]
+    total_events_in_window: int
+    anomaly_rate: float
+    avg_score: float
+    avg_latency_ms: float
+    bucket_confidence: int
+    model_phase: ModelPhase
+
+
+@dataclass
+class TemporalAnomalySignal:
+    layer_name: str
+    window_start: datetime
+    window_end: datetime
+    hour_of_week: int
+    anomaly_rate: float
+    anomaly_rate_z: float
+    volume: int
+    volume_z: float
+    avg_score_z: float
+    avg_latency_z: float
+    is_rate_anomaly: bool
+    is_volume_anomaly: bool
+    is_score_anomaly: bool
+    is_latency_anomaly: bool
+    contributing_agents: list[str]
+    bucket_confidence: int
 
 
 @dataclass

@@ -3,8 +3,13 @@ syntax = "proto3";
 package sentinel;
 
 service SentinelCortex {
+  // Agent → TemporalLayer
   rpc ReportEvent(ProcessedEventProto) returns (Ack);
   rpc ReportHeartbeat(HeartbeatProto) returns (Ack);
+
+  // TemporalLayer → Cortex
+  rpc ReportTemporalHeartbeat(TemporalHeartbeatProto) returns (Ack);
+  rpc ReportTemporalAnomalySignal(TemporalAnomalySignalProto) returns (Ack);
 }
 
 message ProcessedEventProto {
@@ -28,6 +33,46 @@ message HeartbeatProto {
   float error_rate_last_window = 4;
   int64 last_message_timestamp_ms = 5;
   string model_phase = 6;
+}
+
+message TemporalHeartbeatProto {
+  string layer_name              = 1;
+  int64  timestamp_ms            = 2;
+  int64  window_start_ms         = 3;
+  int64  window_end_ms           = 4;
+  repeated string agents_monitored = 5;
+  int32  total_events_in_window  = 6;
+  float  anomaly_rate            = 7;
+  float  avg_score               = 8;
+  float  avg_latency_ms          = 9;
+  int32  bucket_confidence       = 10;
+  string model_phase             = 11;
+}
+
+message TemporalAnomalyFlagsProto {
+  bool is_rate_anomaly    = 1;
+  bool is_volume_anomaly  = 2;
+  bool is_score_anomaly   = 3;
+  bool is_latency_anomaly = 4;
+}
+
+message TemporalAnomalySignalProto {
+  string layer_name      = 1;
+  int64  window_start_ms = 2;
+  int64  window_end_ms   = 3;
+  int32  hour_of_week    = 4;
+
+  float  anomaly_rate    = 5;
+  float  anomaly_rate_z  = 6;
+  int32  volume          = 7;
+  float  volume_z        = 8;
+  float  avg_score_z     = 9;
+  float  avg_latency_z   = 10;
+
+  TemporalAnomalyFlagsProto flags = 11;
+
+  repeated string contributing_agents = 12;
+  int32  bucket_confidence            = 13;
 }
 
 message Ack {

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from sentinel.adapters.store.redis_store import RedisCorrelationStore
 from sentinel.adapters.transport.sqs_sns import SqsSnsTransport
-from sentinel.config.schema import AgentConfig, CorrelationEngineConfig, CortexConfig, DetectorConfig, SentinelConfig
+from sentinel.config.schema import AgentConfig, CorrelationEngineConfig, CortexConfig, DetectorConfig, SentinelConfig, TemporalLayerConfig
 from sentinel.domain.models import Alert, AlertSeverity, AlertType, CorrelatedPair, HeartbeatEvent, ModelPhase
 from sentinel.domain.ports.detector import DetectorState, IDetector
 from sentinel.domain.ports.reporter import IReporter
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from sentinel.adapters.grpc.client import GrpcReporter
     from sentinel.adapters.model_store.disk_store import DiskModelStore
     from sentinel.agent.use_cases.process_message import AgentState
-    from sentinel.cortex.use_cases.aggregate import AgentStateVector
+    from sentinel.cortex.use_cases.aggregate import LayerStateVector
     from sentinel.cortex.use_cases.adaptation import AdaptationContext, IAdaptationStrategy
     from sentinel.cortex.use_cases.autoencoder import SentinelAutoencoder
     from sentinel.dashboard.state import DashboardState
@@ -466,7 +466,7 @@ class CortexRunner:
     cortex_config: CortexConfig
     sentinel_config: SentinelConfig
     dashboard_state: DashboardState | None = None
-    state_vectors: dict[str, AgentStateVector] = field(default_factory=dict)
+    layer_vectors: dict[str, LayerStateVector] = field(default_factory=dict)
     causal_window: deque = field(default_factory=lambda: deque(maxlen=100))
     phase: ModelPhase = field(default=ModelPhase.TRAINING)
     autoencoder_model: SentinelAutoencoder | None = None
@@ -479,31 +479,24 @@ class CortexRunner:
     _adaptation_ctx: AdaptationContext | None = field(default=None, repr=False)
     _parent_reporters: list[GrpcReporter] = field(default_factory=list, repr=False)
     _model_store: DiskModelStore | None = field(default=None, repr=False)
-    _correlation_store: RedisCorrelationStore | None = field(default=None, repr=False)
-    _grouping_ttl_s: int = field(default=300, repr=False)
     _last_training_sample_at: datetime | None = field(default=None, repr=False)
 
     def _all_inputs_in_inference(self) -> bool:
-        from sentinel.domain.models import ModelPhase as _MP
         for name in self.cortex_config.inputs:
-            sv = self.state_vectors.get(name)
-            if sv is None or sv.model_phase != _MP.INFERENCE:
+            lv = self.layer_vectors.get(name)
+            if lv is None or lv.model_phase != ModelPhase.INFERENCE:
                 return False
         return True
 
     async def _accumulate_training_sample(self):
-        from sentinel.cortex.use_cases.aggregate import build_feature_matrix
+        from sentinel.cortex.use_cases.aggregate import build_layer_feature_matrix
 
-        # INFERENCE: always build and return the current sample for scoring.
         if self.phase == ModelPhase.INFERENCE:
-            matrix = build_feature_matrix(self.state_vectors)
+            matrix = build_layer_feature_matrix(self.layer_vectors)
             if matrix.shape[0] == 0:
                 return None
             return matrix.mean(axis=0)
 
-        # TRAINING: check cheap conditions before building the feature matrix.
-        # build_feature_matrix + mean are skipped on the vast majority of calls
-        # where the sampling interval has not elapsed yet.
         if not self._all_inputs_in_inference():
             return None
 
@@ -514,7 +507,7 @@ class CortexRunner:
             if elapsed < interval:
                 return None
 
-        matrix = build_feature_matrix(self.state_vectors)
+        matrix = build_layer_feature_matrix(self.layer_vectors)
         if matrix.shape[0] == 0:
             return None
         sample = matrix.mean(axis=0)
@@ -628,13 +621,13 @@ class CortexRunner:
         )
 
     async def reset(self) -> None:
-        """Reset cortex to initial state — clears model, buffers, state vectors."""
+        """Reset cortex to initial state — clears model, buffers, layer vectors."""
         self.autoencoder_model = None
         self.training_buffer = []
         self.test_buffer = deque()
         self.last_test_result = {}
         self.baseline_error = 0.01
-        self.state_vectors = {}
+        self.layer_vectors = {}
         self.causal_window = deque(maxlen=100)
         self.phase = ModelPhase.TRAINING
         self._strategy = None
@@ -694,33 +687,6 @@ class CortexRunner:
         logger.info("cortex_test_complete", cortex=self.cortex_config.name, **result)
         return result
 
-    async def _forward_event_to_parents(self, event) -> None:
-        if not self._parent_reporters:
-            return
-        from sentinel.domain.models import ProcessedEvent as PE
-        forwarded = PE(
-            agent_name=self.cortex_config.name,
-            correlation_id=event.correlation_id,
-            input_received_at=event.input_received_at,
-            output_sent_at=event.output_sent_at,
-            processing_latency_ms=event.processing_latency_ms,
-            anomaly_score=event.anomaly_score,
-            is_anomaly=event.is_anomaly,
-            anomaly_type=event.anomaly_type,
-            payload_schema_hash=event.payload_schema_hash,
-            input_size_bytes=event.input_size_bytes,
-            output_size_bytes=event.output_size_bytes,
-        )
-        for reporter in self._parent_reporters:
-            try:
-                await reporter.publish_event(forwarded)
-            except Exception as exc:
-                logger.warning(
-                    "cortex_parent_forward_failed",
-                    cortex=self.cortex_config.name,
-                    error=str(exc),
-                )
-
     async def _send_heartbeat_to_parent(self) -> None:
         if not self._parent_reporters:
             return
@@ -745,111 +711,74 @@ class CortexRunner:
 
     async def handle_event(self, proto_event: object) -> None:
         from sentinel.adapters.grpc.generated import sentinel_pb2
-        from sentinel.domain.models import ProcessedEvent
+        from sentinel.cortex.use_cases.aggregate import (
+            check_layer_silence,
+            update_layer_state,
+        )
+        from sentinel.cortex.use_cases.causal_chain import add_temporal_signal
+        from sentinel.domain.models import TemporalAnomalySignal, TemporalHeartbeatEvent
 
-        if isinstance(proto_event, sentinel_pb2.ProcessedEventProto):
-            event = ProcessedEvent(
-                agent_name=proto_event.agent_name,
-                correlation_id=proto_event.correlation_id,
-                input_received_at=datetime.fromtimestamp(
-                    proto_event.input_received_at_ms / 1000, tz=timezone.utc
-                ),
-                output_sent_at=datetime.fromtimestamp(
-                    proto_event.output_sent_at_ms / 1000, tz=timezone.utc
-                ),
-                processing_latency_ms=proto_event.processing_latency_ms,
-                anomaly_score=proto_event.anomaly_score,
-                is_anomaly=proto_event.is_anomaly,
-                anomaly_type=None,
-                payload_schema_hash=proto_event.payload_schema_hash,
-                input_size_bytes=proto_event.input_size_bytes,
-                output_size_bytes=proto_event.output_size_bytes,
-            )
-            from sentinel.cortex.use_cases.aggregate import update_state, check_silence
-            from sentinel.cortex.use_cases.causal_chain import add_event
-            self.state_vectors = update_state(self.state_vectors, event)
-            if self.phase == ModelPhase.INFERENCE:
-                add_event(self.causal_window, event)
-            await self._handle_grouping(event)
-
-        elif isinstance(proto_event, sentinel_pb2.HeartbeatProto):
-            from sentinel.cortex.use_cases.aggregate import update_state, check_silence
-            input_phase = (
-                ModelPhase(proto_event.model_phase)
-                if proto_event.model_phase
-                else ModelPhase.COLD
-            )
-            event = HeartbeatEvent(
-                agent_name=proto_event.agent_name,
+        if isinstance(proto_event, sentinel_pb2.TemporalHeartbeatProto):
+            event = TemporalHeartbeatEvent(
+                layer_name=proto_event.layer_name,
                 timestamp=datetime.fromtimestamp(
                     proto_event.timestamp_ms / 1000, tz=timezone.utc
                 ),
-                message_rate_per_sec=proto_event.message_rate_per_sec,
-                error_rate_last_window=proto_event.error_rate_last_window,
-                last_message_timestamp=datetime.fromtimestamp(
-                    proto_event.last_message_timestamp_ms / 1000, tz=timezone.utc
+                window_start=datetime.fromtimestamp(
+                    proto_event.window_start_ms / 1000, tz=timezone.utc
                 ),
-                model_phase=input_phase,
+                window_end=datetime.fromtimestamp(
+                    proto_event.window_end_ms / 1000, tz=timezone.utc
+                ),
+                agents_monitored=list(proto_event.agents_monitored),
+                total_events_in_window=proto_event.total_events_in_window,
+                anomaly_rate=proto_event.anomaly_rate,
+                avg_score=proto_event.avg_score,
+                avg_latency_ms=proto_event.avg_latency_ms,
+                bucket_confidence=proto_event.bucket_confidence,
+                model_phase=ModelPhase(proto_event.model_phase) if proto_event.model_phase else ModelPhase.WARMUP,
             )
-            self.state_vectors = update_state(self.state_vectors, event)
+            self.layer_vectors = update_layer_state(self.layer_vectors, event)
             now = datetime.now(tz=timezone.utc)
-            for agent_name in self.cortex_config.inputs:
-                if check_silence(
-                    self.state_vectors, agent_name,
-                    self.cortex_config.silence_threshold_s, now
+            for layer_name in self.cortex_config.inputs:
+                if check_layer_silence(
+                    self.layer_vectors, layer_name,
+                    self.cortex_config.silence_threshold_s, now,
                 ):
-                    logger.warning("agent_silence_detected", agent=agent_name)
+                    logger.warning("layer_silence_detected", layer=layer_name)
                     if self.dashboard_state:
-                        self.dashboard_state.mark_silent(agent_name)
+                        self.dashboard_state.mark_silent(layer_name)
+
+        elif isinstance(proto_event, sentinel_pb2.TemporalAnomalySignalProto):
+            signal = TemporalAnomalySignal(
+                layer_name=proto_event.layer_name,
+                window_start=datetime.fromtimestamp(
+                    proto_event.window_start_ms / 1000, tz=timezone.utc
+                ),
+                window_end=datetime.fromtimestamp(
+                    proto_event.window_end_ms / 1000, tz=timezone.utc
+                ),
+                hour_of_week=proto_event.hour_of_week,
+                anomaly_rate=proto_event.anomaly_rate,
+                anomaly_rate_z=proto_event.anomaly_rate_z,
+                volume=proto_event.volume,
+                volume_z=proto_event.volume_z,
+                avg_score_z=proto_event.avg_score_z,
+                avg_latency_z=proto_event.avg_latency_z,
+                is_rate_anomaly=proto_event.flags.is_rate_anomaly,
+                is_volume_anomaly=proto_event.flags.is_volume_anomaly,
+                is_score_anomaly=proto_event.flags.is_score_anomaly,
+                is_latency_anomaly=proto_event.flags.is_latency_anomaly,
+                contributing_agents=list(proto_event.contributing_agents),
+                bucket_confidence=proto_event.bucket_confidence,
+            )
+            self.layer_vectors = update_layer_state(self.layer_vectors, signal)
+            if self.phase == ModelPhase.INFERENCE:
+                add_temporal_signal(self.causal_window, signal)
 
         current_sample = await self._accumulate_training_sample()
         if self.phase == ModelPhase.INFERENCE:
             await self._run_inference(sample=current_sample)
-
-    async def _handle_grouping(self, event) -> None:
-        if not self._parent_reporters or self._correlation_store is None:
-            self._record_dashboard_event()
-            await self._forward_event_to_parents(event)
-            return
-
-        expected = self.cortex_config.inputs
-        if not expected:
-            self._record_dashboard_event()
-            await self._forward_event_to_parents(event)
-            return
-
-        cid = event.correlation_id
-        if not cid:
-            self._record_dashboard_event()
-            await self._forward_event_to_parents(event)
-            return
-
-        try:
-            from sentinel.cortex.use_cases.group_buffer import (
-                record_source_event, is_complete, build_grouped_event, delete_group,
-            )
-            group = await record_source_event(
-                store=self._correlation_store,
-                cortex_name=self.cortex_config.name,
-                correlation_id=cid,
-                source_name=event.agent_name,
-                event=event,
-                expected_sources=expected,
-                ttl_s=self._grouping_ttl_s,
-            )
-            if is_complete(group, expected):
-                grouped = build_grouped_event(group, self.cortex_config.name, cid, expected)
-                self._record_dashboard_event()
-                await self._forward_event_to_parents(grouped)
-                await delete_group(self._correlation_store, self.cortex_config.name, cid)
-        except Exception as exc:
-            logger.warning(
-                "cortex_grouping_failed",
-                cortex=self.cortex_config.name,
-                error=str(exc),
-            )
-            self._record_dashboard_event()
-            await self._forward_event_to_parents(event)
 
     def _record_dashboard_event(self) -> None:
         if self.dashboard_state:
@@ -873,7 +802,7 @@ class CortexRunner:
         result = run_dual_network(
             causal_window=self.causal_window,
             autoencoder_model=self.autoencoder_model,
-            state_vectors=self.state_vectors,
+            layer_vectors=self.layer_vectors,
             config=self.cortex_config,
             baseline_error=self.baseline_error,
             source_name=self.cortex_config.name,
@@ -891,60 +820,6 @@ class CortexRunner:
         )
         if self.dashboard_state:
             self.dashboard_state.record_alert(alert)
-
-    async def _group_expiry_task(self) -> None:
-        import time
-
-        while True:
-            await asyncio.sleep(self._grouping_ttl_s)
-            if self._correlation_store is None or not self._parent_reporters:
-                continue
-            expected = self.cortex_config.inputs
-            if not expected:
-                continue
-            try:
-                client = self._correlation_store._get_client()
-                pattern = f"cortex:{self.cortex_config.name}:group:*"
-                cursor = 0
-                now_ms = int(time.time() * 1000)
-                while True:
-                    cursor, keys = await client.scan(cursor, match=pattern, count=200)
-                    for key in keys:
-                        try:
-                            raw = await client.get(key)
-                            if raw is None:
-                                continue
-                            import json as _json
-                            group = _json.loads(raw)
-                            created = group.get("_created_at_ms", now_ms)
-                            age_s = (now_ms - created) / 1000
-                            if age_s >= self._grouping_ttl_s:
-                                from sentinel.cortex.use_cases.group_buffer import build_grouped_event
-                                cid = key.split(":", 3)[-1]
-                                grouped = build_grouped_event(
-                                    group, self.cortex_config.name, cid, expected
-                                )
-                                from sentinel.domain.models import AnomalyType
-                                grouped.is_anomaly = True
-                                grouped.anomaly_type = AnomalyType.TIMEOUT
-                                await self._forward_event_to_parents(grouped)
-                                await self._correlation_store.delete(key)
-                                logger.warning(
-                                    "cortex_group_expired",
-                                    cortex=self.cortex_config.name,
-                                    correlation_id=cid,
-                                    present_sources=[s for s in expected if group.get(s)],
-                                )
-                        except Exception as exc:
-                            logger.warning("cortex_expiry_key_error", key=key, error=str(exc))
-                    if cursor == 0:
-                        break
-            except Exception as exc:
-                logger.warning(
-                    "cortex_expiry_scan_failed",
-                    cortex=self.cortex_config.name,
-                    error=str(exc),
-                )
 
     async def run(self) -> None:
         if self._model_store is not None:
@@ -987,10 +862,7 @@ class CortexRunner:
             port=self.cortex_config.grpc_port,
             event_handler=self.handle_event,
         )
-        await asyncio.gather(
-            start_server(server),
-            self._group_expiry_task(),
-        )
+        await start_server(server)
 
 
 class _MultiReporter(IReporter):
@@ -1021,6 +893,254 @@ def _build_base_reporter(agent_config: AgentConfig) -> IReporter:
     if len(reporters) == 1:
         return reporters[0]
     return _MultiReporter(reporters)
+
+
+@dataclass
+class TemporalLayerRunner:
+    config: TemporalLayerConfig
+    sentinel_config: SentinelConfig
+    dashboard_state: DashboardState | None = None
+    phase: ModelPhase = field(default=ModelPhase.WARMUP)
+    _accumulator: object = field(default=None, repr=False)
+    _agent_phases: dict[str, ModelPhase] = field(default_factory=dict, repr=False)
+    _bucket_store: object = field(default=None, repr=False)
+    _reporters: list = field(default_factory=list, repr=False)
+    _closing: bool = field(default=False, repr=False)
+
+    def __post_init__(self) -> None:
+        from sentinel.temporal.use_cases.window_accumulator import WindowAccumulator
+        self._accumulator = WindowAccumulator(
+            layer_name=self.config.name,
+            duration_seconds=self.config.bucket.duration_seconds,
+            window_start=datetime.now(tz=timezone.utc),
+        )
+
+    async def handle_event(self, proto_event: object) -> None:
+        from sentinel.adapters.grpc.generated import sentinel_pb2
+        from sentinel.domain.models import ModelPhase as _MP
+        from sentinel.temporal.use_cases.window_accumulator import add_event, should_close
+
+        if isinstance(proto_event, sentinel_pb2.ProcessedEventProto):
+            agent_phase = self._agent_phases.get(
+                proto_event.agent_name, _MP.TRAINING
+            )
+            from sentinel.domain.models import ProcessedEvent, AnomalyType
+            event = ProcessedEvent(
+                agent_name=proto_event.agent_name,
+                correlation_id=proto_event.correlation_id,
+                input_received_at=datetime.fromtimestamp(
+                    proto_event.input_received_at_ms / 1000, tz=timezone.utc
+                ),
+                output_sent_at=datetime.fromtimestamp(
+                    proto_event.output_sent_at_ms / 1000, tz=timezone.utc
+                ),
+                processing_latency_ms=proto_event.processing_latency_ms,
+                anomaly_score=proto_event.anomaly_score,
+                is_anomaly=proto_event.is_anomaly,
+                anomaly_type=AnomalyType(proto_event.anomaly_type) if proto_event.anomaly_type else None,
+                payload_schema_hash=proto_event.payload_schema_hash,
+                input_size_bytes=proto_event.input_size_bytes,
+                output_size_bytes=proto_event.output_size_bytes,
+            )
+            self._accumulator = add_event(self._accumulator, event, agent_phase)
+            now = datetime.now(tz=timezone.utc)
+            if should_close(self._accumulator, now) and not self._closing:
+                await self._close_and_process()
+
+        elif isinstance(proto_event, sentinel_pb2.HeartbeatProto):
+            if proto_event.model_phase:
+                self._agent_phases[proto_event.agent_name] = _MP(proto_event.model_phase)
+
+    async def _close_and_process(self) -> None:
+        from sentinel.temporal.use_cases.anomaly_decider import decide
+        from sentinel.temporal.use_cases.seasonal_normalizer import (
+            bucket_index_for,
+            compute_z_scores,
+            hour_of_week,
+            update_bucket,
+        )
+        from sentinel.temporal.use_cases.window_accumulator import close_window
+
+        self._closing = True
+        try:
+            now = datetime.now(tz=timezone.utc)
+            bucket_idx = bucket_index_for(
+                now,
+                self.config.bucket.count,
+                self.config.bucket.duration_seconds,
+            )
+
+            snapshot, self._accumulator = close_window(self._accumulator, bucket_idx)
+
+            # Skip bucket update for empty windows
+            if snapshot.total_events == 0:
+                return
+
+            bucket = await self._bucket_store.get_bucket(bucket_idx)
+            z_scores = compute_z_scores(snapshot, bucket)
+            all_buckets = await self._bucket_store.get_all_buckets()
+            confidence = self._bucket_store.bucket_confidence(all_buckets)
+            decision = decide(z_scores, self.config, confidence)
+
+            updated_bucket = update_bucket(bucket, snapshot, self.config.bucket.ema_alpha)
+            await self._bucket_store.save_bucket(bucket_idx, updated_bucket)
+
+            # Check WARMUP → INFERENCE transition
+            if self.phase == ModelPhase.WARMUP:
+                refreshed = await self._bucket_store.get_all_buckets()
+                if all(
+                    b.n_observations >= self.config.bucket.min_observations
+                    for b in refreshed
+                ):
+                    self.phase = ModelPhase.INFERENCE
+                    logger.info(
+                        "temporal_layer_inference",
+                        layer=self.config.name,
+                    )
+
+            if decision.is_anomalous and self.phase == ModelPhase.INFERENCE:
+                from sentinel.domain.models import TemporalAnomalySignal
+                from sentinel.adapters.grpc.client import GrpcReporter
+                signal = TemporalAnomalySignal(
+                    layer_name=self.config.name,
+                    window_start=snapshot.window_start,
+                    window_end=snapshot.window_end,
+                    hour_of_week=hour_of_week(snapshot.window_end),
+                    anomaly_rate=snapshot.anomaly_rate,
+                    anomaly_rate_z=z_scores.get("anomaly_rate", 0.0),
+                    volume=snapshot.total_events,
+                    volume_z=z_scores.get("volume", 0.0),
+                    avg_score_z=z_scores.get("avg_score", 0.0),
+                    avg_latency_z=z_scores.get("avg_latency", 0.0),
+                    is_rate_anomaly=decision.is_rate_anomaly,
+                    is_volume_anomaly=decision.is_volume_anomaly,
+                    is_score_anomaly=decision.is_score_anomaly,
+                    is_latency_anomaly=decision.is_latency_anomaly,
+                    contributing_agents=snapshot.contributing_agents,
+                    bucket_confidence=confidence,
+                )
+                for reporter in self._reporters:
+                    if isinstance(reporter, GrpcReporter):
+                        try:
+                            await reporter.publish_temporal_anomaly_signal(signal)
+                        except Exception as exc:
+                            logger.warning(
+                                "temporal_anomaly_signal_failed",
+                                layer=self.config.name,
+                                error=str(exc),
+                            )
+        finally:
+            self._closing = False
+
+    async def _heartbeat_loop(self) -> None:
+        from sentinel.adapters.grpc.client import GrpcReporter
+        from sentinel.domain.models import TemporalHeartbeatEvent
+
+        interval = self.config.heartbeat_interval_s
+        while True:
+            await asyncio.sleep(interval)
+            now = datetime.now(tz=timezone.utc)
+            all_buckets = await self._bucket_store.get_all_buckets() if self._bucket_store else []
+            confidence = self._bucket_store.bucket_confidence(all_buckets) if self._bucket_store else 0
+
+            acc = self._accumulator
+            total = len(acc.events) if hasattr(acc, "events") else 0
+            anomaly_count = sum(1 for e in acc.events if e.is_anomaly) if hasattr(acc, "events") else 0
+            anomaly_rate = anomaly_count / total if total > 0 else 0.0
+            avg_score = sum(e.anomaly_score for e in acc.events) / total if total > 0 else 0.0
+            avg_latency = sum(e.processing_latency_ms for e in acc.events) / total if total > 0 else 0.0
+
+            heartbeat = TemporalHeartbeatEvent(
+                layer_name=self.config.name,
+                timestamp=now,
+                window_start=acc.window_start,
+                window_end=now,
+                agents_monitored=sorted(acc.active_agents) if hasattr(acc, "active_agents") else [],
+                total_events_in_window=total,
+                anomaly_rate=anomaly_rate,
+                avg_score=avg_score,
+                avg_latency_ms=avg_latency,
+                bucket_confidence=confidence,
+                model_phase=self.phase,
+            )
+
+            for reporter in self._reporters:
+                if isinstance(reporter, GrpcReporter):
+                    try:
+                        await reporter.publish_temporal_heartbeat(heartbeat)
+                    except Exception as exc:
+                        logger.warning(
+                            "temporal_heartbeat_failed",
+                            layer=self.config.name,
+                            error=str(exc),
+                        )
+
+    async def _window_clock_loop(self) -> None:
+        from sentinel.temporal.use_cases.window_accumulator import should_close
+        while True:
+            await asyncio.sleep(1)
+            if not self._closing and should_close(self._accumulator, datetime.now(tz=timezone.utc)):
+                await self._close_and_process()
+
+    async def run(self) -> None:
+        from sentinel.adapters.grpc.server import create_server, start_server
+        from sentinel.temporal.use_cases.bucket_store import BucketStore
+
+        redis = RedisCorrelationStore(
+            host=self.sentinel_config.redis.host,
+            port=self.sentinel_config.redis.port,
+            db=self.sentinel_config.redis.db,
+            password=self.sentinel_config.redis.password,
+        )
+        redis_client = redis._get_client()
+        self._bucket_store = BucketStore(
+            redis_client=redis_client,
+            layer_name=self.config.name,
+            bucket_count=self.config.bucket.count,
+        )
+
+        # Resume INFERENCE if all buckets are already warm from a previous run
+        all_buckets = await self._bucket_store.get_all_buckets()
+        if all(
+            b.n_observations >= self.config.bucket.min_observations
+            for b in all_buckets
+        ):
+            self.phase = ModelPhase.INFERENCE
+            logger.info(
+                "temporal_layer_resumed_inference",
+                layer=self.config.name,
+            )
+
+        server = create_server(
+            host="0.0.0.0",
+            port=self.config.grpc_port,
+            event_handler=self.handle_event,
+        )
+        await asyncio.gather(
+            start_server(server),
+            self._heartbeat_loop(),
+            self._window_clock_loop(),
+        )
+
+
+def build_temporal_layer(
+    tl_config: TemporalLayerConfig,
+    sentinel_config: SentinelConfig,
+    dashboard_state: DashboardState | None = None,
+) -> TemporalLayerRunner:
+    from sentinel.adapters.grpc.client import GrpcReporter
+
+    reporters = [
+        GrpcReporter(host=ref.host, port=ref.port)
+        for ref in tl_config.cortex
+    ]
+
+    return TemporalLayerRunner(
+        config=tl_config,
+        sentinel_config=sentinel_config,
+        dashboard_state=dashboard_state,
+        _reporters=reporters,
+    )
 
 
 def build_correlation_engine(
@@ -1179,35 +1299,12 @@ def build_cortex(
         max_versions=sentinel_config.model.max_versions,
     )
 
-    grouping_ttl_s = cortex_config.grouping_ttl_s
-    if grouping_ttl_s <= 0:
-        # Derive from the correlation engines whose destinations feed these agents
-        engine_ttls = [
-            e.correlation_ttl_s
-            for e in sentinel_config.correlation_engines
-            if any(a.name in cortex_config.inputs for a in sentinel_config.agents)
-        ]
-        grouping_ttl_s = max(engine_ttls, default=300)
-
-    correlation_store = (
-        RedisCorrelationStore(
-            host=sentinel_config.redis.host,
-            port=sentinel_config.redis.port,
-            db=sentinel_config.redis.db,
-            password=sentinel_config.redis.password,
-        )
-        if parent_reporters
-        else None
-    )
-
     runner = CortexRunner(
         cortex_config=cortex_config,
         sentinel_config=sentinel_config,
         dashboard_state=dashboard_state,
         _parent_reporters=parent_reporters,
         _model_store=model_store,
-        _correlation_store=correlation_store,
-        _grouping_ttl_s=grouping_ttl_s,
     )
 
     if dashboard_state is not None:
@@ -1265,6 +1362,10 @@ async def launch(
                 runner = build_agent(agent_config, config, ds)
                 tasks.append(asyncio.create_task(runner.run(), name=f"agent-{agent_config.name}"))
 
+            for tl_config in config.temporal_layers:
+                runner = build_temporal_layer(tl_config, config, ds)
+                tasks.append(asyncio.create_task(runner.run(), name=f"temporal-{tl_config.name}"))
+
             for cortex_config in config.cortex:
                 runner = build_cortex(cortex_config, config, ds)
                 tasks.append(asyncio.create_task(runner.run(), name=f"cortex-{cortex_config.name}"))
@@ -1295,6 +1396,7 @@ async def launch(
         mode=mode,
         engines=len(config.correlation_engines) if run_engines else 0,
         agents=len(config.agents) if run_agents else 0,
+        temporal_layers=len(config.temporal_layers) if run_agents else 0,
         cortex=len(config.cortex) if run_agents else 0,
         dashboard=(
             f"http://{config.dashboard.host}:{config.dashboard.port}"

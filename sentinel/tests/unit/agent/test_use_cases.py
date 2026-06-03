@@ -45,7 +45,7 @@ class StubDetector(IDetector):
     def score(self, model, event_dict):
         return self._score
 
-    def is_anomaly(self, score):
+    def is_anomaly(self, score, model=None):
         return self._anomaly
 
 
@@ -128,10 +128,11 @@ def test_evaluate_fp_rate_empty_buffer_returns_worst():
 
 # ── run_selection ─────────────────────────────────────────────────────────────
 
-def test_run_selection_challenger_wins():
+@pytest.mark.asyncio
+async def test_run_selection_challenger_wins():
     det = StubDetector(anomaly=False)
     test_buf = [{"processing_latency_ms": 10.0} for _ in range(5)]
-    result = run_selection(
+    result = await run_selection(
         detector=det,
         challenger={"new_model": True},
         current_champion={"old_model": True},
@@ -144,10 +145,11 @@ def test_run_selection_challenger_wins():
     assert result.fp_rate == 0.0
 
 
-def test_run_selection_champion_retained_when_challenger_worse():
+@pytest.mark.asyncio
+async def test_run_selection_champion_retained_when_challenger_worse():
     det = StubDetector(anomaly=True)  # challenger has 100% FP rate
     test_buf = [{"processing_latency_ms": 10.0} for _ in range(5)]
-    result = run_selection(
+    result = await run_selection(
         detector=det,
         challenger={"new_model": True},
         current_champion={"old_model": True},
@@ -159,10 +161,11 @@ def test_run_selection_champion_retained_when_challenger_worse():
     assert result.fp_rate == 0.1
 
 
-def test_run_selection_no_champion_accepts_first_challenger():
+@pytest.mark.asyncio
+async def test_run_selection_no_champion_accepts_first_challenger():
     det = StubDetector(anomaly=False)
     test_buf = [{"processing_latency_ms": 10.0} for _ in range(3)]
-    result = run_selection(
+    result = await run_selection(
         detector=det,
         challenger={"model": True},
         current_champion=None,

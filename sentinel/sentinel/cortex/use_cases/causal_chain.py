@@ -13,80 +13,86 @@
 # limitations under the License.
 
 from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime
 
-from sentinel.domain.models import ProcessedEvent
+from sentinel.domain.models import TemporalAnomalySignal
 
 
 @dataclass
 class CausalDiagnosis:
-    root_agent: str | None
-    affected_agents: list[str]
+    root_layer: str | None
+    affected_layers: list[str]
     confidence: float
-    sequence: list[str]  # agent names in anomaly order
+    sequence: list[str]
 
 
-def add_event(window: deque, event: ProcessedEvent) -> deque:
-    """Add a ProcessedEvent to the sliding window (anomalies only tracked)."""
-    if event.is_anomaly:
-        window.append(event)
+@dataclass
+class _CausalEntry:
+    source_name: str
+    timestamp: datetime
+    score: float
+
+
+def add_temporal_signal(
+    window: deque,
+    signal: TemporalAnomalySignal,
+) -> deque:
+    """Add a TemporalAnomalySignal to the causal window.
+
+    Uses window_end as the event timestamp and the highest z-score as the score.
+    """
+    score = max(
+        abs(signal.anomaly_rate_z),
+        abs(signal.volume_z),
+        abs(signal.avg_score_z),
+        abs(signal.avg_latency_z),
+    )
+    window.append(_CausalEntry(
+        source_name=signal.layer_name,
+        timestamp=signal.window_end,
+        score=score,
+    ))
     return window
 
 
 def analyze_causality(window: deque, window_s: float = 30.0) -> CausalDiagnosis:
-    """Analyze a window of anomaly events to identify root cause and cascade.
+    """Analyze the causal window to identify root layer and cascade sequence.
 
-    Simple algorithm:
-    - Filter events within window_s of the most recent event
-    - Order by timestamp (ascending)
-    - First event is the root cause candidate
-    - Confidence proportional to number of affected agents
+    - Filters entries within window_s of the most recent entry
+    - Orders by timestamp ascending — first is root cause candidate
+    - Confidence proportional to number of distinct layers involved
     """
     if not window:
-        return CausalDiagnosis(
-            root_agent=None, affected_agents=[], confidence=0.0, sequence=[]
-        )
+        return CausalDiagnosis(root_layer=None, affected_layers=[], confidence=0.0, sequence=[])
 
-    events = list(window)
-    if not events:
-        return CausalDiagnosis(
-            root_agent=None, affected_agents=[], confidence=0.0, sequence=[]
-        )
+    entries: list[_CausalEntry] = list(window)
+    entries_sorted = sorted(entries, key=lambda e: e.timestamp)
+    latest_time = entries_sorted[-1].timestamp
 
-    # Sort by output_sent_at ascending
-    events_sorted = sorted(events, key=lambda e: e.output_sent_at)
-    latest_time = events_sorted[-1].output_sent_at
-
-    # Filter to events within window_s of the latest
     relevant = [
-        e
-        for e in events_sorted
-        if (latest_time - e.output_sent_at).total_seconds() <= window_s
+        e for e in entries_sorted
+        if (latest_time - e.timestamp).total_seconds() <= window_s
     ]
 
     if not relevant:
-        return CausalDiagnosis(
-            root_agent=None, affected_agents=[], confidence=0.0, sequence=[]
-        )
+        return CausalDiagnosis(root_layer=None, affected_layers=[], confidence=0.0, sequence=[])
 
-    # Build ordered sequence of unique agents
     seen: set[str] = set()
     sequence: list[str] = []
     for e in relevant:
-        if e.agent_name not in seen:
-            seen.add(e.agent_name)
-            sequence.append(e.agent_name)
+        if e.source_name not in seen:
+            seen.add(e.source_name)
+            sequence.append(e.source_name)
 
-    root_agent = sequence[0] if sequence else None
-    affected_agents = sequence[1:] if len(sequence) > 1 else []
-
-    # Confidence: higher when more agents are affected in a tight chain
-    confidence = min(1.0, len(sequence) / max(1, len(set(e.agent_name for e in events))))
+    root_layer = sequence[0] if sequence else None
+    affected_layers = sequence[1:] if len(sequence) > 1 else []
+    total_sources = len({e.source_name for e in entries})
+    confidence = min(1.0, len(sequence) / max(1, total_sources))
 
     return CausalDiagnosis(
-        root_agent=root_agent,
-        affected_agents=affected_agents,
+        root_layer=root_layer,
+        affected_layers=affected_layers,
         confidence=confidence,
         sequence=sequence,
     )

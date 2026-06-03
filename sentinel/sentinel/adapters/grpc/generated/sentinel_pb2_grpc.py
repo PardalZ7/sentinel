@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from sentinel.adapters.grpc.generated import sentinel_pb2 as sentinel__pb2
+import sentinel_pb2 as sentinel__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -44,18 +44,42 @@ class SentinelCortexStub(object):
                 request_serializer=sentinel__pb2.HeartbeatProto.SerializeToString,
                 response_deserializer=sentinel__pb2.Ack.FromString,
                 _registered_method=True)
+        self.ReportTemporalHeartbeat = channel.unary_unary(
+                '/sentinel.SentinelCortex/ReportTemporalHeartbeat',
+                request_serializer=sentinel__pb2.TemporalHeartbeatProto.SerializeToString,
+                response_deserializer=sentinel__pb2.Ack.FromString,
+                _registered_method=True)
+        self.ReportTemporalAnomalySignal = channel.unary_unary(
+                '/sentinel.SentinelCortex/ReportTemporalAnomalySignal',
+                request_serializer=sentinel__pb2.TemporalAnomalySignalProto.SerializeToString,
+                response_deserializer=sentinel__pb2.Ack.FromString,
+                _registered_method=True)
 
 
 class SentinelCortexServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def ReportEvent(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Agent → TemporalLayer
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ReportHeartbeat(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReportTemporalHeartbeat(self, request, context):
+        """TemporalLayer → Cortex
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReportTemporalAnomalySignal(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -72,6 +96,16 @@ def add_SentinelCortexServicer_to_server(servicer, server):
             'ReportHeartbeat': grpc.unary_unary_rpc_method_handler(
                     servicer.ReportHeartbeat,
                     request_deserializer=sentinel__pb2.HeartbeatProto.FromString,
+                    response_serializer=sentinel__pb2.Ack.SerializeToString,
+            ),
+            'ReportTemporalHeartbeat': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReportTemporalHeartbeat,
+                    request_deserializer=sentinel__pb2.TemporalHeartbeatProto.FromString,
+                    response_serializer=sentinel__pb2.Ack.SerializeToString,
+            ),
+            'ReportTemporalAnomalySignal': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReportTemporalAnomalySignal,
+                    request_deserializer=sentinel__pb2.TemporalAnomalySignalProto.FromString,
                     response_serializer=sentinel__pb2.Ack.SerializeToString,
             ),
     }
@@ -128,6 +162,60 @@ class SentinelCortex(object):
             target,
             '/sentinel.SentinelCortex/ReportHeartbeat',
             sentinel__pb2.HeartbeatProto.SerializeToString,
+            sentinel__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReportTemporalHeartbeat(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sentinel.SentinelCortex/ReportTemporalHeartbeat',
+            sentinel__pb2.TemporalHeartbeatProto.SerializeToString,
+            sentinel__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReportTemporalAnomalySignal(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sentinel.SentinelCortex/ReportTemporalAnomalySignal',
+            sentinel__pb2.TemporalAnomalySignalProto.SerializeToString,
             sentinel__pb2.Ack.FromString,
             options,
             channel_credentials,

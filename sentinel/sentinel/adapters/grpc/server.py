@@ -63,6 +63,32 @@ class SentinelCortexServicer(sentinel_pb2_grpc.SentinelCortexServicer):
             logger.error("grpc_report_heartbeat_failed", error=str(exc))
             return sentinel_pb2.Ack(ok=False)
 
+    async def ReportTemporalHeartbeat(
+        self,
+        request: sentinel_pb2.TemporalHeartbeatProto,
+        context: grpc.aio.ServicerContext,
+    ) -> sentinel_pb2.Ack:
+        logger.info("grpc_report_temporal_heartbeat", layer=request.layer_name)
+        try:
+            await self._event_handler(request)
+            return sentinel_pb2.Ack(ok=True)
+        except Exception as exc:
+            logger.error("grpc_report_temporal_heartbeat_failed", error=str(exc))
+            return sentinel_pb2.Ack(ok=False)
+
+    async def ReportTemporalAnomalySignal(
+        self,
+        request: sentinel_pb2.TemporalAnomalySignalProto,
+        context: grpc.aio.ServicerContext,
+    ) -> sentinel_pb2.Ack:
+        logger.info("grpc_report_temporal_anomaly_signal", layer=request.layer_name)
+        try:
+            await self._event_handler(request)
+            return sentinel_pb2.Ack(ok=True)
+        except Exception as exc:
+            logger.error("grpc_report_temporal_anomaly_signal_failed", error=str(exc))
+            return sentinel_pb2.Ack(ok=False)
+
 
 def create_server(
     host: str,

@@ -41,7 +41,7 @@ class DualNetworkResult:
 def run_dual_network(
     causal_window: deque,
     autoencoder_model: SentinelAutoencoder | None,
-    state_vectors: dict,
+    layer_vectors: dict,
     config: object,  # CortexConfig
     baseline_error: float = 0.01,
     source_name: str = "cortex",
@@ -58,13 +58,12 @@ def run_dual_network(
     systemic_error = 0.0
     detected_systemic = False
 
-    if autoencoder_model is not None and state_vectors:
+    if autoencoder_model is not None and layer_vectors:
         try:
-            from sentinel.cortex.use_cases.aggregate import build_feature_matrix
+            from sentinel.cortex.use_cases.aggregate import build_layer_feature_matrix
 
-            matrix = build_feature_matrix(state_vectors)
+            matrix = build_layer_feature_matrix(layer_vectors)
             if matrix.shape[0] > 0:
-                # Use mean of all agent feature vectors as system state
                 mean_features = matrix.mean(axis=0)
                 systemic_error = compute_reconstruction_error(
                     autoencoder_model, mean_features
@@ -78,7 +77,7 @@ def run_dual_network(
 
     has_causal = (
         causal_diagnosis is not None
-        and causal_diagnosis.root_agent is not None
+        and causal_diagnosis.root_layer is not None
         and len(causal_diagnosis.sequence) > 1
     )
 
@@ -86,15 +85,15 @@ def run_dual_network(
         severity = AlertSeverity.CRITICAL
         alert_type = AlertType.SYSTEMIC
         affected = list(
-            set(causal_diagnosis.sequence + list(state_vectors.keys()))
+            set(causal_diagnosis.sequence + list(layer_vectors.keys()))
         )
         description = (
             f"Systemic anomaly detected (error={systemic_error:.4f}) with causal chain "
-            f"originating at {causal_diagnosis.root_agent}"
+            f"originating at {causal_diagnosis.root_layer}"
         )
         diagnosis = {
             "causal": {
-                "root_agent": causal_diagnosis.root_agent,
+                "root_layer": causal_diagnosis.root_layer,
                 "sequence": causal_diagnosis.sequence,
                 "confidence": causal_diagnosis.confidence,
             },
@@ -105,12 +104,12 @@ def run_dual_network(
         alert_type = AlertType.CAUSAL
         affected = causal_diagnosis.sequence
         description = (
-            f"Causal anomaly chain detected: root={causal_diagnosis.root_agent}, "
-            f"affected={causal_diagnosis.affected_agents}"
+            f"Causal anomaly chain detected: root={causal_diagnosis.root_layer}, "
+            f"affected={causal_diagnosis.affected_layers}"
         )
         diagnosis = {
             "causal": {
-                "root_agent": causal_diagnosis.root_agent,
+                "root_layer": causal_diagnosis.root_layer,
                 "sequence": causal_diagnosis.sequence,
                 "confidence": causal_diagnosis.confidence,
             }
@@ -118,7 +117,7 @@ def run_dual_network(
     elif detected_systemic:
         severity = AlertSeverity.WARNING
         alert_type = AlertType.SYSTEMIC
-        affected = list(state_vectors.keys())
+        affected = list(layer_vectors.keys())
         description = f"Systemic anomaly detected (reconstruction_error={systemic_error:.4f})"
         diagnosis = {"systemic_error": systemic_error}
     else:

@@ -22,7 +22,6 @@ class RedisConfig(BaseModel):
     port: int = 6379
     db: int = 0
     password: str | None = None
-    password: str | None = None
 
 
 class AwsConfig(BaseModel):
@@ -270,6 +269,29 @@ class CortexConfig(BaseModel):
     training_sample_interval_s: float = 5.0
 
 
+class TemporalBucketConfig(BaseModel):
+    count: int = 168
+    duration_seconds: int = 3600
+    min_observations: int = 4
+    ema_alpha: float = 0.1
+
+
+class TemporalLayerConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    grpc_port: int = 50052
+    inputs: list[str] = Field(default_factory=list)
+    cortex: list[CortexRef] = Field(default_factory=list)
+    silence_threshold_s: float = 60.0
+    heartbeat_interval_s: int = 30
+    bucket: TemporalBucketConfig = Field(default_factory=TemporalBucketConfig)
+    anomaly_rate_z_threshold: float = 2.0
+    volume_z_threshold: float = 2.5
+    avg_score_z_threshold: float = 2.0
+    avg_latency_z_threshold: float = 2.5
+
+
 class SentinelConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -283,4 +305,5 @@ class SentinelConfig(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     correlation_engines: list[CorrelationEngineConfig] = Field(default_factory=list)
     agents: list[AgentConfig] = Field(default_factory=list)
+    temporal_layers: list[TemporalLayerConfig] = Field(default_factory=list)
     cortex: list[CortexConfig] = Field(default_factory=list)
