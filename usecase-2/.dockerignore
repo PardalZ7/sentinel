@@ -1,0 +1,7 @@
+node_modules
+**/node_modules
+.git
+infra
+*.md
+docker-compose.yml
+.env.local
