@@ -35,10 +35,17 @@ echo "Subscribing engine input queues to uc2-input topic..."
 ENGINE01_QUEUE_ARN="arn:aws:sqs:${REGION}:${ACCOUNT}:uc2-engine01-input"
 ENGINE02_QUEUE_ARN="arn:aws:sqs:${REGION}:${ACCOUNT}:uc2-engine02-input"
 
-aws --endpoint-url=$ENDPOINT sns subscribe \
+ENGINE01_SUB_ARN=$(aws --endpoint-url=$ENDPOINT sns subscribe \
     --topic-arn "$INPUT_TOPIC_ARN" \
     --protocol sqs \
-    --notification-endpoint "$ENGINE01_QUEUE_ARN"
+    --notification-endpoint "$ENGINE01_QUEUE_ARN" \
+    --query SubscriptionArn --output text)
+
+# Filter engine01 to finished events only — success_watcher must not see failed payloads
+aws --endpoint-url=$ENDPOINT sns set-subscription-attributes \
+    --subscription-arn "$ENGINE01_SUB_ARN" \
+    --attribute-name FilterPolicy \
+    --attribute-value '{"status":["finished"]}'
 
 aws --endpoint-url=$ENDPOINT sns subscribe \
     --topic-arn "$INPUT_TOPIC_ARN" \

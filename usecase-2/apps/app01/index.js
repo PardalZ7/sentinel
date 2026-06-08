@@ -271,6 +271,9 @@ async function produce() {
     await snsClient.send(new PublishCommand({
       TopicArn: getTopicArn(),
       Message: JSON.stringify(payload),
+      MessageAttributes: {
+        status: { DataType: 'String', StringValue: String(payload.status ?? '') },
+      },
     }));
     publishedCount++;
     addLog({ timestamp: new Date().toISOString(), templateName: tpl.name, payload, errors });
