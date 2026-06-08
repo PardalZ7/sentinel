@@ -95,7 +95,11 @@
             "epochs": 30,
             "auto_infer_fp_threshold": 0.08,
             "gating_detector": "if_operational",
-            "max_challengers_rejected": 10
+            "max_challengers_rejected": 10,
+            "field_map": {
+              "input": ["user_id", "automation_id", "card_id"],
+              "output": ["executed"]
+            }
           }
         ]
       },
@@ -141,7 +145,11 @@
             "epochs": 30,
             "auto_infer_fp_threshold": 0.08,
             "gating_detector": "if_operational",
-            "max_challengers_rejected": 10
+            "max_challengers_rejected": 10,
+            "field_map": {
+              "input": ["user_id", "automation_id", "card_id"],
+              "output": ["executed"]
+            }
           }
         ]
       }
