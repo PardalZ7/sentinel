@@ -55,7 +55,7 @@
     "agents": [
       {
         "_comment": "pipefy_automation_success_watcher — monitors finished automations. Denial rule fires when status=finished but executed=false (silent failure). IF detects operational anomalies; cVAE detects semantic inconsistencies in the payload.",
-        "name": "pipefy_automation_success_watcher",
+        "name": "success_watcher",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent01-pairs" },
         "test_buffer_size": 150,
         "cortex": [{ "host": "${UC2_ENGINE_HOST:-localhost}", "port": 50060 }],
@@ -105,7 +105,7 @@
       },
       {
         "_comment": "pipefy_automation_failure_watcher — monitors failed automations. Denial rule fires immediately on status=failed. IF detects operational anomalies; cVAE detects unusual error patterns in the payload.",
-        "name": "pipefy_automation_failure_watcher",
+        "name": "failure_watcher",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent02-pairs" },
         "test_buffer_size": 150,
         "cortex": [{ "host": "${UC2_ENGINE_HOST:-localhost}", "port": 50060 }],
