@@ -1,3 +1,4 @@
+import asyncio
 from collections import deque
 from datetime import datetime, timezone
 
@@ -264,6 +265,7 @@ async def test_process_pair_normal():
 
     pair = _make_pair("corr-2", latency_ms=1000.0)
     new_state = await process_pair(pair, config, state, detectors, model_store, reporter)
+    await asyncio.sleep(0)  # let fire-and-forget publish task run
 
     assert new_state.message_count == 1
     assert len(reporter.events) == 1
@@ -283,6 +285,7 @@ async def test_process_pair_timeout_event():
 
     pair = _make_pair("expired-corr", timed_out=True)
     new_state = await process_pair(pair, config, state, detectors, model_store, reporter)
+    await asyncio.sleep(0)  # let fire-and-forget publish task run
 
     assert len(reporter.events) == 1
     event = reporter.events[0]
@@ -301,6 +304,7 @@ async def test_process_pair_inference_anomaly():
 
     pair = _make_pair("corr-anomaly")
     new_state = await process_pair(pair, config, state, detectors, model_store, reporter)
+    await asyncio.sleep(0)  # let fire-and-forget publish task run
 
     assert len(reporter.events) == 1
     assert reporter.events[0].is_anomaly is True
@@ -332,6 +336,7 @@ async def test_multi_detector_any_anomaly_propagates():
 
     pair = _make_pair("corr-multi")
     new_state = await process_pair(pair, config, state, detectors, model_store, reporter)
+    await asyncio.sleep(0)  # let fire-and-forget publish task run
 
     assert reporter.events[0].is_anomaly is True
 

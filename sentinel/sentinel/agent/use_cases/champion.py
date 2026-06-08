@@ -202,10 +202,11 @@ async def run_selection(
     to be promoted. A challenger that passes FP rate but fails recall is rejected.
     """
     denial_buffer = denial_buffer or []
+    no_champion = current_champion is None
 
     if not test_buffer:
         denial_recall = evaluate_denial_recall(detector, challenger, denial_buffer)
-        if min_denial_recall > 0.0 and denial_recall < min_denial_recall:
+        if not no_champion and min_denial_recall > 0.0 and denial_recall < min_denial_recall:
             logger.info(
                 "challenger_rejected_low_recall",
                 detector=detector.name,
@@ -232,7 +233,7 @@ async def run_selection(
 
     denial_recall = evaluate_denial_recall(detector, challenger, denial_buffer)
 
-    if min_denial_recall > 0.0 and denial_recall < min_denial_recall:
+    if not no_champion and min_denial_recall > 0.0 and denial_recall < min_denial_recall:
         logger.info(
             "challenger_rejected_low_recall",
             detector=detector.name,

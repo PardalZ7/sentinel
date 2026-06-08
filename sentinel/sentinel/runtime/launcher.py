@@ -169,7 +169,6 @@ class AgentRunner:
 
     async def _run_background_training(self, det_name: str) -> None:
         """Train a challenger in background, then apply champion selection atomically."""
-        from dataclasses import replace as dc_replace
         from sentinel.agent.use_cases.train import run_training
         from sentinel.agent.use_cases.champion import run_selection
 
@@ -236,26 +235,19 @@ class AgentRunner:
             new_challengers_rejected = det_state.challengers_rejected
             new_training_count = det_state.training_count
 
-        # Apply result atomically — preserve samples accumulated during training.
+        # Apply result — preserve samples accumulated during training.
         # current_det.training_buffer contains samples that arrived while the fit
         # was running in background (output loop kept consuming). We keep those
         # and discard only the snapshot that was used for training.
         is_new_champion = new_model is not det_state.model
         current_det = self.state.detectors.get(det_name, det_state)
         post_training_samples = current_det.training_buffer[len(buffer_snapshot):]
-        updated_det = dc_replace(
-            current_det,
-            model=new_model,
-            champion_fp_rate=new_fp_rate,
-            challengers_rejected=new_challengers_rejected,
-            training_count=new_training_count,
-            training_buffer=post_training_samples,
-            training_in_progress=False,
-        )
-        new_detectors = dict(self.state.detectors)
-        new_detectors[det_name] = updated_det
-        from dataclasses import replace as dr
-        self.state = dr(self.state, detectors=new_detectors)
+        current_det.model = new_model
+        current_det.champion_fp_rate = new_fp_rate
+        current_det.challengers_rejected = new_challengers_rejected
+        current_det.training_count = new_training_count
+        current_det.training_buffer = post_training_samples
+        current_det.training_in_progress = False
 
         # Dashboard notifications
         if self.dashboard_state is not None:
@@ -270,7 +262,7 @@ class AgentRunner:
                     new_training_count, new_challengers_rejected,
                 )
             # Auto-infer check
-            threshold = updated_det.auto_infer_fp_threshold
+            threshold = current_det.auto_infer_fp_threshold
             if (
                 threshold is not None
                 and updated_det.phase == ModelPhase.TRAINING
@@ -298,69 +290,94 @@ class AgentRunner:
         proto.ParseFromString(bytes.fromhex(hex_data))
         return _proto_to_pair(proto)
 
+    async def _handle_one_pair(
+        self,
+        raw_message,
+        training_tasks: dict[str, asyncio.Task],
+        prev_buf_counts: dict[str, int],
+    ) -> None:
+        """Process a single pair message: decode, score/train, ack, spawn training if needed."""
+        from sentinel.agent.use_cases.process_message import process_pair
+        try:
+            pair = self._decode_pair(raw_message.body)
+            if pair is None:
+                await self.pairs_transport.nack(raw_message.id)
+                return
+
+            await process_pair(
+                pair=pair,
+                agent_config=self.agent_config,
+                state=self.state,
+                detectors=self.detectors,
+                model_store=self.model_store,
+                reporter=self.reporter,
+            )
+
+            for det_name, det_state in self.state.detectors.items():
+                if det_state.training_in_progress:
+                    existing = training_tasks.get(det_name)
+                    if existing is None or existing.done():
+                        task = asyncio.create_task(
+                            self._run_background_training(det_name),
+                            name=f"train-{self.agent_config.name}-{det_name}",
+                        )
+                        training_tasks[det_name] = task
+
+                if self.dashboard_state is not None:
+                    new_buf = len(det_state.test_buffer)
+                    if new_buf != prev_buf_counts.get(det_name, 0):
+                        self.dashboard_state.update_detector_buffer_count(
+                            self.agent_config.name, det_name, new_buf,
+                        )
+                        prev_buf_counts[det_name] = new_buf
+
+            await self.pairs_transport.ack(raw_message.id)
+        except Exception as exc:
+            logger.error(
+                "agent_processing_error",
+                agent=self.agent_config.name,
+                error=str(exc),
+            )
+            await self.pairs_transport.nack(raw_message.id)
+
     async def _run_pairs_loop(self) -> None:
         _training_tasks: dict[str, asyncio.Task] = {}
+        _sem = asyncio.Semaphore(10)  # matches SQS max batch size
         logger.info("agent_pairs_polling_start", agent=self.agent_config.name, queue=self.agent_config.pairs_queue.resource)
 
-        from sentinel.agent.use_cases.process_message import process_pair
-        async for raw_message in self.pairs_transport.receive():
-            logger.info("agent_pairs_message_received", agent=self.agent_config.name, body_keys=list(raw_message.body.keys()) if isinstance(raw_message.body, dict) else type(raw_message.body).__name__)
-            try:
-                pair = self._decode_pair(raw_message.body)
-                if pair is None:
-                    await self.pairs_transport.nack(raw_message.id)
-                    continue
+        while True:
+            batch = await self.pairs_transport.receive_batch()
+            if not batch:
+                continue
 
-                prev_buf_counts = (
-                    {name: len(det.test_buffer) for name, det in self.state.detectors.items()}
-                    if self.dashboard_state is not None
-                    else {}
-                )
+            logger.info("agent_pairs_batch_received", agent=self.agent_config.name, count=len(batch))
 
-                self.state = await process_pair(
-                    pair=pair,
-                    agent_config=self.agent_config,
-                    state=self.state,
-                    detectors=self.detectors,
-                    model_store=self.model_store,
-                    reporter=self.reporter,
-                )
+            prev_buf_counts = (
+                {name: len(det.test_buffer) for name, det in self.state.detectors.items()}
+                if self.dashboard_state is not None
+                else {}
+            )
 
-                # Single pass: spawn background training + notify dashboard.
-                for det_name, det_state in self.state.detectors.items():
-                    if det_state.training_in_progress:
-                        existing = _training_tasks.get(det_name)
-                        if existing is None or existing.done():
-                            task = asyncio.create_task(
-                                self._run_background_training(det_name),
-                                name=f"train-{self.agent_config.name}-{det_name}",
-                            )
-                            _training_tasks[det_name] = task
+            async def _bounded(msg):
+                async with _sem:
+                    await self._handle_one_pair(msg, _training_tasks, prev_buf_counts)
 
-                    if self.dashboard_state is not None:
-                        new_buf = len(det_state.test_buffer)
-                        if new_buf != prev_buf_counts.get(det_name, 0):
-                            self.dashboard_state.update_detector_buffer_count(
-                                self.agent_config.name, det_name, new_buf,
-                            )
-
-                await self.pairs_transport.ack(raw_message.id)
-                await self.pairs_transport.flush_acks()
-            except Exception as exc:
-                logger.error(
-                    "agent_processing_error",
-                    agent=self.agent_config.name,
-                    error=str(exc),
-                )
-                await self.pairs_transport.nack(raw_message.id)
+            await asyncio.gather(*[_bounded(msg) for msg in batch], return_exceptions=True)
 
     async def change_phase(
         self, new_phase: str, detector_name: str | None = None
     ) -> None:
         """Change phase for a specific detector or all detectors if detector_name is None."""
-        from sentinel.agent.use_cases.set_phase import set_phase
         phase = ModelPhase(new_phase)
-        self.state = set_phase(self.state, phase, detector_name)
+        target = [detector_name] if detector_name else list(self.state.detectors.keys())
+        for dname in target:
+            det = self.state.detectors.get(dname)
+            if det is None:
+                logger.warning("phase_transition_detector_not_found", agent=self.agent_config.name, detector=dname)
+                continue
+            old_phase = det.phase
+            det.phase = phase
+            logger.info("phase_transition", agent=self.agent_config.name, detector=dname, from_phase=old_phase, to_phase=phase)
         # Force send_all_events when entering TRAINING so Cortex receives all data
         if phase == ModelPhase.TRAINING:
             self.agent_config.reporting.send_all_events = True
@@ -375,22 +392,17 @@ class AgentRunner:
         self, rate: float, detector_name: str | None = None
     ) -> None:
         """Set the test sample rate for a specific detector or all detectors."""
-        from dataclasses import replace
-
         clamped = max(0.0, min(1.0, rate))
-        new_detectors = dict(self.state.detectors)
-
-        target = [detector_name] if detector_name else list(new_detectors.keys())
+        target = [detector_name] if detector_name else list(self.state.detectors.keys())
         for dname in target:
-            if dname in new_detectors:
-                new_detectors[dname] = replace(new_detectors[dname], test_sample_rate=clamped)
-
-        self.state = replace(self.state, detectors=new_detectors)
+            det = self.state.detectors.get(dname)
+            if det is not None:
+                det.test_sample_rate = clamped
 
         if self.dashboard_state is not None:
             for dname in target:
-                if dname in self.state.detectors:
-                    det = self.state.detectors[dname]
+                det = self.state.detectors.get(dname)
+                if det is not None:
                     self.dashboard_state.update_detector_test_rate(
                         self.agent_config.name, dname, clamped, len(det.test_buffer)
                     )
@@ -398,47 +410,49 @@ class AgentRunner:
     async def run_test(self, detector_name: str | None = None) -> dict:
         """Run test buffer evaluation for a specific detector or all detectors."""
         from sentinel.agent.use_cases.run_test import run_detector_test
-        from dataclasses import replace
 
         results: dict[str, dict] = {}
-        new_detectors = dict(self.state.detectors)
-
-        target = [detector_name] if detector_name else list(new_detectors.keys())
+        target = [detector_name] if detector_name else list(self.state.detectors.keys())
         for dname in target:
-            det_state = new_detectors.get(dname)
+            det_state = self.state.detectors.get(dname)
             detector = self.detectors.get(dname)
             if det_state is None or detector is None:
                 continue
             result = run_detector_test(detector, det_state)
-            new_detectors[dname] = replace(det_state, last_test_result=result)
+            det_state.last_test_result = result
             results[dname] = result
             if self.dashboard_state is not None:
                 self.dashboard_state.update_detector_test_result(
                     self.agent_config.name, dname, result
                 )
 
-        self.state = replace(self.state, detectors=new_detectors)
         return results
 
     async def set_auto_infer(
         self, detector_name: str, threshold: float | None
     ) -> None:
         """Enable (threshold=float) or disable (threshold=None) auto-transition to INFERENCE."""
-        from dataclasses import replace
-
-        new_detectors = dict(self.state.detectors)
-        if detector_name in new_detectors:
-            new_detectors[detector_name] = replace(
-                new_detectors[detector_name], auto_infer_fp_threshold=threshold
-            )
-            self.state = replace(self.state, detectors=new_detectors)
+        det = self.state.detectors.get(detector_name)
+        if det is not None:
+            det.auto_infer_fp_threshold = threshold
 
     async def reset(self) -> None:
         """Reset all detector states to initial — clears models, buffers, counters."""
-        from dataclasses import replace
-
-        new_detectors = {name: det.reset() for name, det in self.state.detectors.items()}
-        self.state = replace(self.state, detectors=new_detectors, message_count=0, error_count=0)
+        for det_state in self.state.detectors.values():
+            det_state.phase = ModelPhase.TRAINING
+            det_state.model = None
+            det_state.training_buffer = []
+            det_state.test_buffer = deque()
+            det_state.denial_buffer = deque(
+                maxlen=det_state.denial_buffer_size if det_state.denial_buffer_size > 0 else None
+            )
+            det_state.last_test_result = {}
+            det_state.champion_fp_rate = 1.0
+            det_state.challengers_rejected = 0
+            det_state.training_count = 0
+            det_state.training_in_progress = False
+        self.state.message_count = 0
+        self.state.error_count = 0
 
         if self.dashboard_state is not None:
             snap = self.dashboard_state.agents.get(self.agent_config.name)

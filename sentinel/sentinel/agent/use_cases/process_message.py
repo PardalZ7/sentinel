@@ -18,8 +18,8 @@ Orchestrates the per-event detection pipeline starting from an already-correlate
   1. Build event_dict with operational features + raw payload bodies
   2. For each detector in INFERENCE: score the event concurrently
   3. For each detector in TRAINING: accumulate sample, trigger training if window reached
-  4. Publish ProcessedEvent to reporter
-  5. Return updated AgentState (immutable — new instance on each call)
+  4. Publish ProcessedEvent to reporter (fire-and-forget)
+  5. Return the (mutated) AgentState
 
 The Agent has no knowledge of correlation logic. It receives CorrelatedPair objects
 produced by the CorrelationEngine and focuses exclusively on detection and training.
@@ -30,15 +30,16 @@ Multi-detector design:
   - The reported anomaly_score is the worst (most anomalous) score across detectors
   - Detectors in TRAINING never contribute to anomaly scoring but still accumulate samples
 
-AgentState is immutable in the functional sense: process_pair returns a new AgentState
-rather than mutating the input. This makes the state transition explicit and testable.
+AgentState and DetectorState are mutated in place by this use case. Concurrent calls
+are safe under asyncio cooperative scheduling: accumulation and flag updates contain
+no await points, so they execute atomically within the event loop.
 """
 
 import asyncio
 import hashlib
 import json
 import random
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
@@ -135,6 +136,13 @@ def _compute_schema_hash(keys_tuple: tuple) -> str:
     return hashlib.sha256(schema_repr.encode()).hexdigest()[:16]
 
 
+async def _publish_safe(reporter: IReporter, event: ProcessedEvent) -> None:
+    try:
+        await reporter.publish_event(event)
+    except Exception as exc:
+        logger.warning("reporter_unavailable", error=str(exc))
+
+
 def _build_event_dict(pair: CorrelatedPair) -> dict[str, Any]:
     """Convert a CorrelatedPair into the feature dict consumed by all detectors."""
     schema_hash = _compute_schema_hash(tuple(sorted(pair.output_body.keys())))
@@ -196,10 +204,7 @@ async def _handle_timeout(
         output_size_bytes=pair.output_size_bytes,
         output_body=pair.output_body,
     )
-    try:
-        await reporter.publish_event(event)
-    except Exception as exc:
-        logger.warning("reporter_unavailable", error=str(exc))
+    asyncio.create_task(_publish_safe(reporter, event))
     return state
 
 
@@ -228,10 +233,7 @@ async def _handle_denial_rule_hit(
         input_body=pair.input_body,
         output_body=pair.output_body,
     )
-    try:
-        await reporter.publish_event(event)
-    except Exception as exc:
-        logger.warning("reporter_unavailable", error=str(exc))
+    asyncio.create_task(_publish_safe(reporter, event))
 
     # Accumulate denied samples into each TRAINING detector's denial_buffer so
     # that champion selection can later validate recall on known-bad samples.
@@ -239,11 +241,9 @@ async def _handle_denial_rule_hit(
         if det_state.phase == ModelPhase.TRAINING:
             det_state.denial_buffer.append(event_dict)
 
-    return replace(
-        state,
-        message_count=state.message_count + 1,
-        error_count=state.error_count + 1,
-    )
+    state.message_count += 1
+    state.error_count += 1
+    return state
 
 
 async def _score_and_train(
@@ -270,7 +270,6 @@ async def _score_and_train(
 
     worst_anomaly_score = 0.0
     detected_anomaly = False
-    new_detectors = dict(state.detectors)
     loop = asyncio.get_running_loop()
 
     # ── Phase 1: Score all INFERENCE detectors concurrently ──────────
@@ -352,8 +351,7 @@ async def _score_and_train(
             det_state.training_buffer.append(event_dict)
 
             if should_train(det_state.training_buffer, detector.training_window) and not det_state.training_in_progress:
-                new_detectors[det_name] = replace(det_state, training_in_progress=True)
-                continue
+                det_state.training_in_progress = True
 
     # ── Build and publish event ───────────────────────────────────────
     schema_hash = event_dict["payload_schema_hash"]
@@ -373,7 +371,7 @@ async def _score_and_train(
         output_body=pair.output_body if detected_anomaly else None,
     )
 
-    any_in_training = any(d.phase == ModelPhase.TRAINING for d in new_detectors.values())
+    any_in_training = any(d.phase == ModelPhase.TRAINING for d in state.detectors.values())
     send = (
         agent_config.reporting.send_all_events
         or detected_anomaly
@@ -381,14 +379,8 @@ async def _score_and_train(
         or bool(agent_config.cortex)
     )
     if send:
-        try:
-            await reporter.publish_event(event)
-        except Exception as exc:
-            logger.warning("reporter_unavailable_standalone", error=str(exc))
+        asyncio.create_task(_publish_safe(reporter, event))
 
-    return replace(
-        state,
-        detectors=new_detectors,
-        message_count=state.message_count + 1,
-        error_count=state.error_count + (1 if detected_anomaly else 0),
-    )
+    state.message_count += 1
+    state.error_count += 1 if detected_anomaly else 0
+    return state

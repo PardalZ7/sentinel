@@ -23,6 +23,9 @@ class ITransport(ABC):
     def receive(self) -> AsyncIterator[RawMessage]: ...
 
     @abstractmethod
+    async def receive_batch(self) -> list[RawMessage]: ...
+
+    @abstractmethod
     async def ack(self, message_id: str) -> None: ...
 
     @abstractmethod

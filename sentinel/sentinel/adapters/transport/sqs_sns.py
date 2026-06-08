@@ -67,8 +67,37 @@ class SqsSnsTransport(ITransport):
                 ) from e
         return self._session
 
-    async def receive(self) -> AsyncIterator[RawMessage]:
-        """Poll SQS for messages and yield RawMessage objects. Does NOT auto-ack."""
+    def _parse_sqs_message(self, msg: dict) -> RawMessage:
+        """Parse a raw SQS message dict into a RawMessage, unwrapping SNS envelopes."""
+        msg_id = msg["MessageId"]
+        self._receipt_handles[msg_id] = msg["ReceiptHandle"]
+        raw_body_str = msg["Body"]
+        try:
+            body = json.loads(raw_body_str)
+            size_bytes = len(raw_body_str)
+            was_sns = isinstance(body, dict) and body.get("Type") == "Notification" and "Message" in body
+            if was_sns:
+                inner_str = body["Message"]
+                try:
+                    body = json.loads(inner_str)
+                    size_bytes = len(inner_str)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            logger.debug("sqs_message_body", queue=self._input_queue_url, sns_unwrapped=was_sns, body_keys=list(body.keys()) if isinstance(body, dict) else type(body).__name__)
+        except json.JSONDecodeError:
+            body = {"raw": raw_body_str}
+            size_bytes = len(raw_body_str)
+
+        sent_ts_ms = int(msg.get("Attributes", {}).get("SentTimestamp", 0))
+        received_at = (
+            datetime.fromtimestamp(sent_ts_ms / 1000, tz=timezone.utc)
+            if sent_ts_ms
+            else datetime.now(tz=timezone.utc)
+        )
+        return RawMessage(id=msg_id, body=body, received_at=received_at, size_bytes=size_bytes)
+
+    async def receive_batch(self) -> list[RawMessage]:
+        """Poll SQS once and return up to 10 RawMessages. Returns empty list when queue is empty."""
         session = self._get_session()
         try:
             async with session.create_client(
@@ -76,52 +105,25 @@ class SqsSnsTransport(ITransport):
                 region_name=self._region,
                 endpoint_url=self._endpoint_url,
             ) as client:
-                while True:
-                    response = await client.receive_message(
-                        QueueUrl=self._input_queue_url,
-                        MaxNumberOfMessages=10,
-                        WaitTimeSeconds=self._wait_time_seconds,
-                        AttributeNames=["SentTimestamp"],
-                    )
-                    messages = response.get("Messages", [])
-                    if messages:
-                        logger.info("sqs_messages_received", queue=self._input_queue_url, count=len(messages))
-                    for msg in messages:
-                        msg_id = msg["MessageId"]
-                        self._receipt_handles[msg_id] = msg["ReceiptHandle"]
-                        raw_body_str = msg["Body"]
-                        try:
-                            body = json.loads(raw_body_str)
-                            size_bytes = len(raw_body_str)
-                            was_sns = isinstance(body, dict) and body.get("Type") == "Notification" and "Message" in body
-                            # Unwrap SNS notification envelope when delivered via SQS subscription
-                            if was_sns:
-                                inner_str = body["Message"]
-                                try:
-                                    body = json.loads(inner_str)
-                                    size_bytes = len(inner_str)
-                                except (json.JSONDecodeError, TypeError):
-                                    pass
-                            logger.debug("sqs_message_body", queue=self._input_queue_url, sns_unwrapped=was_sns, body_keys=list(body.keys()) if isinstance(body, dict) else type(body).__name__)
-                        except json.JSONDecodeError:
-                            body = {"raw": raw_body_str}
-                            size_bytes = len(raw_body_str)
-
-                        sent_ts_ms = int(msg.get("Attributes", {}).get("SentTimestamp", 0))
-                        received_at = (
-                            datetime.fromtimestamp(sent_ts_ms / 1000, tz=timezone.utc)
-                            if sent_ts_ms
-                            else datetime.now(tz=timezone.utc)
-                        )
-
-                        yield RawMessage(
-                            id=msg_id,
-                            body=body,
-                            received_at=received_at,
-                            size_bytes=size_bytes,
-                        )
+                response = await client.receive_message(
+                    QueueUrl=self._input_queue_url,
+                    MaxNumberOfMessages=10,
+                    WaitTimeSeconds=self._wait_time_seconds,
+                    AttributeNames=["SentTimestamp"],
+                )
+                messages = response.get("Messages", [])
+                if messages:
+                    logger.info("sqs_messages_received", queue=self._input_queue_url, count=len(messages))
+                return [self._parse_sqs_message(msg) for msg in messages]
         except Exception as exc:
             raise TransportError(f"SQS receive failed: {exc}") from exc
+
+    async def receive(self) -> AsyncIterator[RawMessage]:
+        """Poll SQS indefinitely, yielding one RawMessage at a time. Does NOT auto-ack."""
+        while True:
+            batch = await self.receive_batch()
+            for raw_message in batch:
+                yield raw_message
 
     async def ack(self, message_id: str) -> None:
         """Queue the message for batch deletion.
