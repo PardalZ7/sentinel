@@ -29,30 +29,50 @@
 
     "correlation_engines": [
       {
+        "_comment": "engine01 — consumes from uc2-engine01-input (subscribed to uc2-input SNS topic). Publishes CorrelatedPairs to uc2-agent01-pairs-topic.",
         "name": "engine01",
         "inputs": [
-          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample" }, "correlation_field": "correlationId", "correlation_mode": "normal" }
+          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-engine01-input" }, "correlation_field": "id", "correlation_mode": "single" }
         ],
         "correlation_ttl_s": 180,
         "destinations": [
-          { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample_pairs" }
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent01-pairs" }
+        ]
+      },
+      {
+        "_comment": "engine02 — consumes from uc2-engine02-input (subscribed to uc2-input SNS topic). Publishes CorrelatedPairs to uc2-agent02-pairs-topic.",
+        "name": "engine02",
+        "inputs": [
+          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-engine02-input" }, "correlation_field": "id", "correlation_mode": "single" }
+        ],
+        "correlation_ttl_s": 180,
+        "destinations": [
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent02-pairs" }
         ]
       }
     ],
 
     "agents": [
       {
-        "name": "agent01",
-        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/input_data_sample_pairs" },
+        "_comment": "pipefy_automation_success_watcher — monitors finished automations. Denial rule fires when status=finished but executed=false (silent failure). IF detects operational anomalies; cVAE detects semantic inconsistencies in the payload.",
+        "name": "pipefy_automation_success_watcher",
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent01-pairs" },
         "test_buffer_size": 150,
-        "cortex": [{ "host": "localhost", "port": 50051 }],
+        "cortex": [{ "host": "localhost", "port": 50060 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
         },
+        "denial_rules": [
+          {
+            "name": "finished_but_not_executed",
+            "condition": "input.status == 'finished' and input.executed == False",
+            "score": -1.0
+          }
+        ],
         "detectors": [
           {
-            "name": "if_baseline",
+            "name": "if_operational",
             "algorithm": "isolation_forest",
             "phase": "TRAINING",
             "training_window": 1000,
@@ -63,7 +83,7 @@
             "auto_infer_fp_threshold": 0.05
           },
           {
-            "name": "cvae_semantic",
+            "name": "cvae_payload_semantic",
             "algorithm": "cvae",
             "phase": "TRAINING",
             "training_window": 500,
@@ -74,30 +94,87 @@
             "learning_rate": 0.001,
             "epochs": 30,
             "auto_infer_fp_threshold": 0.08,
-            "gating_detector": "if_baseline",
+            "gating_detector": "if_operational",
             "max_challengers_rejected": 10
+          }
+        ]
+      },
+      {
+        "_comment": "pipefy_automation_failure_watcher — monitors failed automations. Denial rule fires immediately on status=failed. IF detects operational anomalies; cVAE detects unusual error patterns in the payload.",
+        "name": "pipefy_automation_failure_watcher",
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent02-pairs" },
+        "test_buffer_size": 150,
+        "cortex": [{ "host": "localhost", "port": 50060 }],
+        "reporting": {
+          "heartbeat_interval_s": 15,
+          "send_all_events": false
+        },
+        "denial_rules": [
+          {
+            "name": "automation_failed",
+            "condition": "input.status == 'failed'",
+            "score": -1.0
+          }
+        ],
+        "detectors": [
+          {
+            "name": "if_operational",
+            "algorithm": "isolation_forest",
+            "phase": "TRAINING",
+            "training_window": 1000,
+            "test_buffer_size": 100,
+            "anomaly_threshold": -0.1,
+            "n_estimators": 100,
+            "contamination": "auto",
+            "auto_infer_fp_threshold": 0.05
           },
           {
-            "name": "maf_distribution",
-            "algorithm": "maf",
+            "name": "cvae_error_pattern",
+            "algorithm": "cvae",
             "phase": "TRAINING",
-            "training_window": 1500,
-            "test_buffer_size": 150,
-            "anomaly_threshold": 2.0,
-            "hidden_dim": 64,
+            "training_window": 500,
+            "test_buffer_size": 100,
+            "anomaly_threshold": 0.5,
+            "hidden_dim": 32,
+            "latent_dim": 8,
             "learning_rate": 0.001,
             "epochs": 30,
-            "auto_infer_fp_threshold": 0.10
+            "auto_infer_fp_threshold": 0.08,
+            "gating_detector": "if_operational",
+            "max_challengers_rejected": 10
           }
         ]
       }
     ],
 
+    "temporal_layers": [
+      {
+        "_comment": "temporal01 — aggregates success_watcher and failure_watcher signals. 4 buckets × 2 min = 8 min cycle. Reports to cortex01.",
+        "name": "temporal01",
+        "grpc_port": 50060,
+        "inputs": ["pipefy_automation_success_watcher", "pipefy_automation_failure_watcher"],
+        "cortex": [{ "host": "localhost", "port": 50051 }],
+        "silence_threshold_s": 45.0,
+        "heartbeat_interval_s": 15,
+        "bucket": {
+          "count": 4,
+          "duration_seconds": 120,
+          "min_observations": 2,
+          "ema_alpha": 0.3
+        },
+        "anomaly_rate_z_threshold": 2.0,
+        "volume_z_threshold": 2.5,
+        "avg_score_z_threshold": 2.0,
+        "avg_latency_z_threshold": 2.5
+      }
+    ],
+
     "cortex": [
       {
+        "_comment": "cortex01 — monitors temporal01. Detects cascades and systemic failure patterns across Pipefy automation success and failure watchers.",
         "name": "cortex01",
         "grpc_port": 50051,
-        "inputs": ["agent01"],
+        "inputs": ["temporal01"],
         "silence_threshold_s": 45,
         "test_buffer_size": 200,
         "training_sample_interval_s": 5,

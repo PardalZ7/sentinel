@@ -1,5 +1,5 @@
 const express = require('express');
-const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
+const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
 
 const app = express();
 app.use(express.json());
@@ -7,17 +7,17 @@ app.use(express.json());
 const LOCALSTACK_ENDPOINT = process.env.LOCALSTACK_ENDPOINT;
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID || '000000000000';
-const QUEUE_NAME = process.env.QUEUE_NAME || 'uc2-input';
+const TOPIC_NAME = process.env.TOPIC_NAME || 'uc2-input';
 
-const sqsClient = new SQSClient(
+const snsClient = new SNSClient(
   LOCALSTACK_ENDPOINT
     ? { endpoint: LOCALSTACK_ENDPOINT, region: AWS_REGION, credentials: { accessKeyId: 'test', secretAccessKey: 'test' } }
     : { region: AWS_REGION }
 );
 
-function getQueueUrl() {
-  if (LOCALSTACK_ENDPOINT) return `${LOCALSTACK_ENDPOINT}/${AWS_ACCOUNT_ID}/${QUEUE_NAME}`;
-  return `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${QUEUE_NAME}`;
+function getTopicArn() {
+  if (LOCALSTACK_ENDPOINT) return `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${TOPIC_NAME}`;
+  return `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${TOPIC_NAME}`;
 }
 
 // ── Template evaluation ──────────────────────────────────────────────────────
@@ -166,9 +166,9 @@ async function produce() {
   if (Math.random() < config.errorRateInject)  { payload = applyInject(payload);  errors.push('inject'); }
 
   try {
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: getQueueUrl(),
-      MessageBody: JSON.stringify(payload),
+    await snsClient.send(new PublishCommand({
+      TopicArn: getTopicArn(),
+      Message: JSON.stringify(payload),
     }));
     publishedCount++;
     addLog({ timestamp: new Date().toISOString(), templateName: tpl.name, payload, errors });
@@ -215,5 +215,5 @@ app.post('/state', (req, res) => {
 
 app.get('/log', (req, res) => res.json(eventLog));
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`[APP01] listening on port ${PORT} — queue: ${QUEUE_NAME}`));
+const PORT = process.env.APP01_PORT || 3001;
+app.listen(PORT, () => console.log(`[APP01] listening on port ${PORT} — topic: ${TOPIC_NAME}`));

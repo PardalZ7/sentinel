@@ -37,6 +37,21 @@ if [ -z "$SQS_BASE_URL" ]; then
 fi
 echo "[entrypoint] SQS_BASE_URL=${SQS_BASE_URL}"
 
+# SNS base URL for sentinel.json variable resolution
+if [ -z "$SNS_BASE_URL" ]; then
+    _region="${AWS_REGION:-us-east-1}"
+    _account="${AWS_ACCOUNT_ID:-000000000000}"
+    if [ -n "$LOCALSTACK_ENDPOINT" ]; then
+        export SNS_BASE_URL="${LOCALSTACK_ENDPOINT}"
+    else
+        export SNS_BASE_URL="https://sns.${_region}.amazonaws.com"
+    fi
+fi
+echo "[entrypoint] SNS_BASE_URL=${SNS_BASE_URL}"
+
+# app01 topic name
+export TOPIC_NAME="${TOPIC_NAME:-uc2-input}"
+
 # Start app01 in background
 echo "[entrypoint] starting app01..."
 node /app/apps/app01/index.js &
