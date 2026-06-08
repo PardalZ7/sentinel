@@ -315,6 +315,9 @@ class DashboardState:
         self._push_sse("temporal_update", {
             "name": name,
             "phase": snap.phase,
+            "inputs": snap.inputs,
+            "cortex_targets": snap.cortex_targets,
+            "bucket_count": snap.bucket_count,
             "current_bucket": snap.current_bucket,
             "bucket_observations": snap.bucket_observations,
             "total_windows": snap.total_windows,
