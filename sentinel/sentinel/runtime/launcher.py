@@ -915,6 +915,21 @@ class TemporalLayerRunner:
             window_start=datetime.now(tz=timezone.utc),
         )
 
+    async def _push_dashboard_update(self, bucket_idx: int, all_buckets: list, extra_anomaly: bool = False) -> None:
+        if self.dashboard_state is None:
+            return
+        snap = self.dashboard_state.temporal_layers.get(self.config.name)
+        total_anomalies = (snap.total_anomalies if snap else 0) + (1 if extra_anomaly else 0)
+        total_windows = (snap.total_windows if snap else 0) + 1
+        self.dashboard_state.update_temporal_layer({
+            "name": self.config.name,
+            "phase": self.phase.value,
+            "current_bucket": bucket_idx,
+            "bucket_observations": [b.n_observations for b in all_buckets],
+            "total_windows": total_windows,
+            "total_anomalies": total_anomalies,
+        })
+
     async def handle_event(self, proto_event: object) -> None:
         from sentinel.adapters.grpc.generated import sentinel_pb2
         from sentinel.domain.models import ModelPhase as _MP
@@ -986,17 +1001,20 @@ class TemporalLayerRunner:
             await self._bucket_store.save_bucket(bucket_idx, updated_bucket)
 
             # Check WARMUP → INFERENCE transition
-            if self.phase == ModelPhase.WARMUP:
-                refreshed = await self._bucket_store.get_all_buckets()
-                if all(
-                    b.n_observations >= self.config.bucket.min_observations
-                    for b in refreshed
-                ):
-                    self.phase = ModelPhase.INFERENCE
-                    logger.info(
-                        "temporal_layer_inference",
-                        layer=self.config.name,
-                    )
+            refreshed = await self._bucket_store.get_all_buckets()
+            if self.phase == ModelPhase.WARMUP and all(
+                b.n_observations >= self.config.bucket.min_observations
+                for b in refreshed
+            ):
+                self.phase = ModelPhase.INFERENCE
+                logger.info(
+                    "temporal_layer_inference",
+                    layer=self.config.name,
+                )
+
+            await self._push_dashboard_update(
+                bucket_idx, refreshed, extra_anomaly=decision.is_anomalous
+            )
 
             if decision.is_anomalous and self.phase == ModelPhase.INFERENCE:
                 from sentinel.domain.models import TemporalAnomalySignal
@@ -1036,12 +1054,26 @@ class TemporalLayerRunner:
         from sentinel.adapters.grpc.client import GrpcReporter
         from sentinel.domain.models import TemporalHeartbeatEvent
 
+        from sentinel.temporal.use_cases.seasonal_normalizer import bucket_index_for
+
         interval = self.config.heartbeat_interval_s
         while True:
             await asyncio.sleep(interval)
             now = datetime.now(tz=timezone.utc)
             all_buckets = await self._bucket_store.get_all_buckets() if self._bucket_store else []
             confidence = self._bucket_store.bucket_confidence(all_buckets) if self._bucket_store else 0
+
+            if self.dashboard_state is not None and self._bucket_store is not None:
+                current_idx = bucket_index_for(now, self.config.bucket.count, self.config.bucket.duration_seconds)
+                snap = self.dashboard_state.temporal_layers.get(self.config.name)
+                self.dashboard_state.update_temporal_layer({
+                    "name": self.config.name,
+                    "phase": self.phase.value,
+                    "current_bucket": current_idx,
+                    "bucket_observations": [b.n_observations for b in all_buckets],
+                    "total_windows": snap.total_windows if snap else 0,
+                    "total_anomalies": snap.total_anomalies if snap else 0,
+                })
 
             acc = self._accumulator
             total = len(acc.events) if hasattr(acc, "events") else 0
@@ -1110,6 +1142,27 @@ class TemporalLayerRunner:
                 "temporal_layer_resumed_inference",
                 layer=self.config.name,
             )
+
+        if self.dashboard_state is not None:
+            port_to_name = {cx.grpc_port: cx.name for cx in (self.sentinel_config.cortex or [])}
+            cortex_targets = [
+                port_to_name.get(ref.port, f"port:{ref.port}")
+                for ref in self.config.cortex
+            ]
+            self.dashboard_state.register_temporal_layer(
+                name=self.config.name,
+                inputs=list(self.config.inputs),
+                cortex_targets=cortex_targets,
+                bucket_count=self.config.bucket.count,
+            )
+            self.dashboard_state.update_temporal_layer({
+                "name": self.config.name,
+                "phase": self.phase.value,
+                "current_bucket": 0,
+                "bucket_observations": [b.n_observations for b in all_buckets],
+                "total_windows": 0,
+                "total_anomalies": 0,
+            })
 
         server = create_server(
             host="0.0.0.0",

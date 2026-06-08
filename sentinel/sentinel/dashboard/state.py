@@ -698,6 +698,7 @@ class DashboardState:
         return {
             "agents": {k: asdict(v) for k, v in self.agents.items()},
             "cortex": {k: asdict(v) for k, v in self.cortex.items()},
+            "temporal_layers": {k: asdict(v) for k, v in self.temporal_layers.items()},
             "recent_events": [asdict(e) for e in list(self.recent_events)[-50:]],
             "recent_alerts": [asdict(a) for a in list(self.recent_alerts)],
         }

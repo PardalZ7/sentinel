@@ -250,6 +250,22 @@
   .cortex-alerts { font-size: 22px; font-weight: 700; color: var(--red); }
   .cortex-alerts span { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 4px; }
 
+  /* ── Temporal layer cards ── */
+  .temporal-card { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid #a371f7; border-radius: 10px; padding: 14px 16px; }
+  .tl-row-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 8px; margin-bottom: 4px; }
+  .cortex-chip { background: var(--surface2); border-radius: 4px; padding: 2px 7px; font-size: 11px; color: #a371f7; margin: 2px; display: inline-block; }
+  .bucket-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .bucket-cell {
+    display: flex; flex-direction: column; align-items: center;
+    background: var(--surface2); border-radius: 6px;
+    padding: 4px 10px; min-width: 42px; font-size: 11px;
+    border: 1px solid transparent; cursor: default;
+  }
+  .bucket-active { border-color: var(--accent); background: rgba(88,166,255,0.12); }
+  .bucket-idx { color: var(--muted); font-size: 10px; }
+  .bucket-obs { font-weight: 600; color: var(--fg); }
+  .tl-stats { margin-top: 10px; font-size: 12px; color: var(--muted); display: flex; gap: 8px; }
+
   /* ── Right panel: event stream ── */
   .right-header {
     padding: 12px 16px;
@@ -737,6 +753,12 @@
       <div class="cards" id="cortex-grid"></div>
     </div>
 
+    <!-- Temporal Layers -->
+    <div id="temporal-section" style="display:none">
+      <div class="section-title">Temporal Layers</div>
+      <div class="cards" id="temporal-grid"></div>
+    </div>
+
     <!-- Operations -->
     <div>
       <div class="section-title">Operations</div>
@@ -851,7 +873,7 @@
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────
-const state = { agents: {}, cortex: {}, totalAnomalies: 0, totalAlerts: 0 };
+const state = { agents: {}, cortex: {}, temporal_layers: {}, totalAnomalies: 0, totalAlerts: 0 };
 const sparkData = {};   // agent_name → float[]
 const MAX_SPARK = 60;
 const MAX_LOG   = 100;
@@ -907,12 +929,16 @@ function handleMessage(msg) {
     case 'cortex_test_update':
       applyCortexTestUpdate(msg.data);
       break;
+    case 'temporal_update':
+      applyTemporalUpdate(msg.data);
+      break;
   }
 }
 
 function applySnapshot(data) {
   state.agents = data.agents || {};
   state.cortex  = data.cortex  || {};
+  state.temporal_layers = data.temporal_layers || {};
   renderAll();
   (data.recent_alerts || []).forEach(a => appendAlertRow(a));
   recalcTotals();
@@ -1060,17 +1086,31 @@ function applyCortexUpdate(d) {
   updateCortexCard(d.name);
 }
 
+function applyTemporalUpdate(d) {
+  if (!state.temporal_layers) state.temporal_layers = {};
+  const tl = state.temporal_layers[d.name] || {};
+  state.temporal_layers[d.name] = { ...tl, ...d };
+  updateTemporalCard(d.name);
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────
 function renderAll() {
   const agGrid  = document.getElementById('agents-grid');
   const cxGrid  = document.getElementById('cortex-grid');
+  const tlGrid  = document.getElementById('temporal-grid');
   agGrid.innerHTML = '';
   cxGrid.innerHTML = '';
+  tlGrid.innerHTML = '';
   Object.values(state.agents).forEach(ag => {
     agGrid.insertAdjacentHTML('beforeend', agentCardHtml(ag));
   });
   Object.values(state.cortex).forEach(cx => {
     cxGrid.insertAdjacentHTML('beforeend', cortexCardHtml(cx));
+  });
+  const tlEntries = Object.values(state.temporal_layers || {});
+  document.getElementById('temporal-section').style.display = tlEntries.length ? '' : 'none';
+  tlEntries.forEach(tl => {
+    tlGrid.insertAdjacentHTML('beforeend', temporalCardHtml(tl));
   });
   renderTopo();
   recalcTotals();
@@ -1149,6 +1189,67 @@ function cortexCardHtml(cx) {
   <button class="phase-btn ${cxBtnClass}" id="cxbtn-${cx.name}" onclick="changeCortexPhase('${cx.name}', '${phase === 'TRAINING' ? 'INFERENCE' : 'TRAINING'}')">${cxBtnLabel}</button>
   <button class="tests-btn" onclick="openTestModal('cortex','${cx.name}')">⚗ Tests</button>
 </div>`;
+}
+
+function temporalCardHtml(tl) {
+  const phase = tl.phase || 'WARMUP';
+  const buckets = (tl.bucket_observations || []).map((obs, i) => {
+    const isActive = i === tl.current_bucket;
+    return `<div class="bucket-cell${isActive ? ' bucket-active' : ''}" title="Bucket ${i}: ${obs} obs">
+      <span class="bucket-idx">${i}</span>
+      <span class="bucket-obs">${obs}</span>
+    </div>`;
+  }).join('');
+  const inputChips = (tl.inputs || []).map(n => `<span class="input-chip">${n}</span>`).join('');
+  const cortexChips = (tl.cortex_targets || []).map(n => `<span class="cortex-chip">${n}</span>`).join('');
+  return `
+<div class="card temporal-card" id="tl-card-${tl.name}">
+  <div class="card-header">
+    <div>
+      <div class="card-name">${tl.name}</div>
+      <div class="card-sub">${(tl.inputs||[]).length} inputs · ${tl.bucket_count ?? 0} buckets</div>
+    </div>
+    <span class="badge ${phase}" id="tl-phase-${tl.name}">${phase}</span>
+  </div>
+  <div class="tl-row-label">Inputs</div>
+  <div class="cortex-inputs">${inputChips}</div>
+  <div class="tl-row-label">Reports to</div>
+  <div class="cortex-inputs">${cortexChips}</div>
+  <div class="tl-row-label">Buckets</div>
+  <div class="bucket-row" id="tl-buckets-${tl.name}">${buckets}</div>
+  <div class="tl-stats">
+    <span><b id="tl-wins-${tl.name}">${tl.total_windows ?? 0}</b> windows</span>
+    <span class="sep">|</span>
+    <span><b id="tl-anoms-${tl.name}">${tl.total_anomalies ?? 0}</b> anomalies</span>
+  </div>
+</div>`;
+}
+
+function updateTemporalCard(name) {
+  const tl = state.temporal_layers[name];
+  if (!tl) return;
+  const card = document.getElementById('tl-card-' + name);
+  if (!card) { renderAll(); return; }
+
+  const phase = tl.phase || 'WARMUP';
+  const badge = document.getElementById('tl-phase-' + name);
+  if (badge) { badge.textContent = phase; badge.className = 'badge ' + phase; }
+
+  const bucketRow = document.getElementById('tl-buckets-' + name);
+  if (bucketRow) {
+    bucketRow.innerHTML = (tl.bucket_observations || []).map((obs, i) => {
+      const isActive = i === tl.current_bucket;
+      return `<div class="bucket-cell${isActive ? ' bucket-active' : ''}" title="Bucket ${i}: ${obs} obs">
+        <span class="bucket-idx">${i}</span>
+        <span class="bucket-obs">${obs}</span>
+      </div>`;
+    }).join('');
+  }
+
+  const winsEl = document.getElementById('tl-wins-' + name);
+  if (winsEl) winsEl.textContent = tl.total_windows ?? 0;
+  const anomsEl = document.getElementById('tl-anoms-' + name);
+  if (anomsEl) anomsEl.textContent = tl.total_anomalies ?? 0;
 }
 
 function updateAgentCard(name) {
@@ -1968,6 +2069,21 @@ function renderTopo() {
         .join(', ');
       const parentArrow = parents ? `  ──► ${parents}` : '';
       lines.push(`  <span class="hl">${cx.name}</span>  ← ${ins}${parentArrow}`);
+    });
+  }
+
+  const temporalLayers = sentinelConfig.temporal_layers || [];
+  if (temporalLayers.length > 0) {
+    lines.push('');
+    lines.push('Temporal Layers');
+    temporalLayers.forEach(tl => {
+      const ins = (tl.inputs || []).map(i => `<span class="hl">${i}</span>`).join(', ');
+      const targets = (tl.cortex || [])
+        .map(ref => portToCortex[ref.port] || `port:${ref.port}`)
+        .map(n => `<span class="hl">${n}</span>`)
+        .join(', ');
+      const arrow = targets ? `  ──► ${targets}` : '';
+      lines.push(`  <span class="hl">${tl.name}</span>  ← ${ins}${arrow}`);
     });
   }
 
