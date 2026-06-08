@@ -88,6 +88,20 @@ class CortexSnapshot:
 
 
 @dataclass
+class TemporalLayerSnapshot:
+    name: str
+    phase: str = "WARMUP"
+    bucket_count: int = 0
+    current_bucket: int = 0
+    bucket_observations: list = field(default_factory=list)  # list[int]
+    inputs: list = field(default_factory=list)               # list[str]
+    cortex_targets: list = field(default_factory=list)       # list[str]
+    total_windows: int = 0
+    total_anomalies: int = 0
+    last_seen: float | None = None
+
+
+@dataclass
 class EventRecord:
     ts: str
     kind: str          # "event" | "heartbeat" | "alert"
@@ -122,6 +136,7 @@ class DashboardState:
     def __init__(self) -> None:
         self.agents: dict[str, AgentSnapshot] = {}
         self.cortex: dict[str, CortexSnapshot] = {}
+        self.temporal_layers: dict[str, TemporalLayerSnapshot] = {}
         self.recent_events: deque[EventRecord] = deque(maxlen=_MAX_RECENT_EVENTS)
         self.recent_errors: deque[EventRecord] = deque(maxlen=_MAX_RECENT_EVENTS)
         self.recent_alerts: deque[AlertRecord] = deque(maxlen=_MAX_RECENT_ALERTS)
@@ -274,6 +289,37 @@ class DashboardState:
         self._cortex_set_rate_callbacks.pop(cortex_name, None)
         self._cortex_run_test_callbacks.pop(cortex_name, None)
         self._push_sse("cortex_removed", {"name": cortex_name})
+
+    def register_temporal_layer(
+        self,
+        name: str,
+        inputs: list[str],
+        cortex_targets: list[str],
+        bucket_count: int,
+    ) -> None:
+        snap = self.temporal_layers.setdefault(name, TemporalLayerSnapshot(name=name))
+        snap.inputs = inputs
+        snap.cortex_targets = cortex_targets
+        snap.bucket_count = bucket_count
+        snap.bucket_observations = [0] * bucket_count
+
+    def update_temporal_layer(self, data: dict) -> None:
+        name = data["name"]
+        snap = self.temporal_layers.setdefault(name, TemporalLayerSnapshot(name=name))
+        snap.phase = data.get("phase", snap.phase)
+        snap.current_bucket = data.get("current_bucket", snap.current_bucket)
+        snap.bucket_observations = data.get("bucket_observations", snap.bucket_observations)
+        snap.total_windows = data.get("total_windows", snap.total_windows)
+        snap.total_anomalies = data.get("total_anomalies", snap.total_anomalies)
+        snap.last_seen = data.get("last_seen", snap.last_seen)
+        self._push_sse("temporal_update", {
+            "name": name,
+            "phase": snap.phase,
+            "current_bucket": snap.current_bucket,
+            "bucket_observations": snap.bucket_observations,
+            "total_windows": snap.total_windows,
+            "total_anomalies": snap.total_anomalies,
+        })
 
     def register_agent(self, agent_name: str, initial_detector_states: dict) -> None:
         """Pre-register an agent with its detectors so it appears on the dashboard from startup.

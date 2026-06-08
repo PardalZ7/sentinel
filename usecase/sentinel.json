@@ -104,7 +104,7 @@
         "name": "agent01",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a01-pairs" },
         "test_buffer_size": 150,
-        "cortex": [{ "host": "localhost", "port": 50051 }],
+        "cortex": [{ "host": "localhost", "port": 50060 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
@@ -147,7 +147,7 @@
         "name": "agent02",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a02-pairs" },
         "test_buffer_size": 150,
-        "cortex": [{ "host": "localhost", "port": 50051 }],
+        "cortex": [{ "host": "localhost", "port": 50060 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
@@ -183,7 +183,7 @@
         "name": "agent03",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a03-pairs" },
         "test_buffer_size": 150,
-        "cortex": [{ "host": "localhost", "port": 50052 }],
+        "cortex": [{ "host": "localhost", "port": 50061 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
@@ -226,7 +226,7 @@
         "name": "agent04",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/sentinel-a04-pairs" },
         "test_buffer_size": 100,
-        "cortex": [{ "host": "localhost", "port": 50052 }],
+        "cortex": [{ "host": "localhost", "port": 50061 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
@@ -259,12 +259,53 @@
       }
     ],
 
+    "temporal_layers": [
+      {
+        "_comment": "temporal11 — enrichment layer. Aggregates agent01 (APP02) and agent02 (APP03 batcher) signals.",
+        "name": "temporal11",
+        "grpc_port": 50060,
+        "inputs": ["agent01", "agent02"],
+        "cortex": [{ "host": "localhost", "port": 50051 }],
+        "silence_threshold_s": 45.0,
+        "heartbeat_interval_s": 15,
+        "bucket": {
+          "count": 168,
+          "duration_seconds": 3600,
+          "min_observations": 4,
+          "ema_alpha": 0.1
+        },
+        "anomaly_rate_z_threshold": 2.0,
+        "volume_z_threshold": 2.5,
+        "avg_score_z_threshold": 2.0,
+        "avg_latency_z_threshold": 2.5
+      },
+      {
+        "_comment": "temporal12 — validation layer. Aggregates agent03 (APP04 validator) and agent04 (full pipeline) signals.",
+        "name": "temporal12",
+        "grpc_port": 50061,
+        "inputs": ["agent03", "agent04"],
+        "cortex": [{ "host": "localhost", "port": 50052 }],
+        "silence_threshold_s": 45.0,
+        "heartbeat_interval_s": 15,
+        "bucket": {
+          "count": 168,
+          "duration_seconds": 3600,
+          "min_observations": 4,
+          "ema_alpha": 0.1
+        },
+        "anomaly_rate_z_threshold": 2.0,
+        "volume_z_threshold": 2.5,
+        "avg_score_z_threshold": 2.0,
+        "avg_latency_z_threshold": 2.5
+      }
+    ],
+
     "cortex": [
       {
-        "_comment": "cortex11 — monitors agent01/02. Detects cascades in the enrichment layer.",
+        "_comment": "cortex11 — monitors temporal11 (enrichment layer). Detects cascades in APP02/APP03.",
         "name": "cortex11",
         "grpc_port": 50051,
-        "inputs": ["agent01", "agent02"],
+        "inputs": ["temporal11"],
         "silence_threshold_s": 45,
         "test_buffer_size": 300,
         "training_sample_interval_s": 5,
@@ -279,10 +320,10 @@
         }
       },
       {
-        "_comment": "cortex12 — monitors agent03/04. Detects anomalies in validation and end-to-end segments.",
+        "_comment": "cortex12 — monitors temporal12 (validation layer). Detects anomalies in APP04/full pipeline.",
         "name": "cortex12",
         "grpc_port": 50052,
-        "inputs": ["agent03", "agent04"],
+        "inputs": ["temporal12"],
         "silence_threshold_s": 45,
         "test_buffer_size": 200,
         "training_sample_interval_s": 5,
