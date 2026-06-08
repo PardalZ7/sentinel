@@ -32,7 +32,7 @@
         "_comment": "engine01 — consumes from uc2-engine01-input (subscribed to uc2-input SNS topic). Publishes CorrelatedPairs to uc2-agent01-pairs-topic.",
         "name": "engine01",
         "inputs": [
-          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-engine01-input" }, "correlation_field": "id", "correlation_mode": "single" }
+          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-engine01-input" }, "correlation_field": "id", "correlation_mode": "normal" }
         ],
         "correlation_ttl_s": 180,
         "destinations": [
@@ -43,7 +43,7 @@
         "_comment": "engine02 — consumes from uc2-engine02-input (subscribed to uc2-input SNS topic). Publishes CorrelatedPairs to uc2-agent02-pairs-topic.",
         "name": "engine02",
         "inputs": [
-          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-engine02-input" }, "correlation_field": "id", "correlation_mode": "single" }
+          { "name": "data", "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-engine02-input" }, "correlation_field": "id", "correlation_mode": "normal" }
         ],
         "correlation_ttl_s": 180,
         "destinations": [
