@@ -81,25 +81,6 @@
             "n_estimators": 100,
             "contamination": "auto",
             "auto_infer_fp_threshold": 0.05
-          },
-          {
-            "name": "cvae_payload_semantic",
-            "algorithm": "cvae",
-            "phase": "TRAINING",
-            "training_window": 500,
-            "test_buffer_size": 100,
-            "anomaly_threshold": 0.5,
-            "hidden_dim": 32,
-            "latent_dim": 8,
-            "learning_rate": 0.001,
-            "epochs": 30,
-            "auto_infer_fp_threshold": 0.08,
-            "gating_detector": "if_operational",
-            "max_challengers_rejected": 10,
-            "field_map": {
-              "input": ["user_id", "automation_id", "card_id"],
-              "output": ["executed"]
-            }
           }
         ]
       },
@@ -131,25 +112,6 @@
             "n_estimators": 100,
             "contamination": "auto",
             "auto_infer_fp_threshold": 0.05
-          },
-          {
-            "name": "cvae_error_pattern",
-            "algorithm": "cvae",
-            "phase": "TRAINING",
-            "training_window": 500,
-            "test_buffer_size": 100,
-            "anomaly_threshold": 0.5,
-            "hidden_dim": 32,
-            "latent_dim": 8,
-            "learning_rate": 0.001,
-            "epochs": 30,
-            "auto_infer_fp_threshold": 0.08,
-            "gating_detector": "if_operational",
-            "max_challengers_rejected": 10,
-            "field_map": {
-              "input": ["user_id", "automation_id", "card_id"],
-              "output": ["executed"]
-            }
           }
         ]
       }
