@@ -1131,11 +1131,12 @@ function mkCortex(name) {
 
 function agentCardHtml(ag) {
   const phase = ag.phase || 'COLD';
-  const anomPct  = ag.total_messages > 0 ? (ag.total_anomalies / ag.total_messages * 100).toFixed(1) : '0.0';
+  const anomPct  = ag.total_messages > 0 ? (ag.total_anomalies / ag.total_messages * 100).toFixed(2) : '0.00';
   const scorePct = Math.max(0, Math.min(100, (1 + ag.last_score) * 50));
   const scoreClr = ag.last_score < -0.1 ? 'var(--red)' : ag.last_score < 0 ? 'var(--yellow)' : 'var(--green)';
   const lastSeen = ag.last_seen ? relTime(ag.last_seen) : '—';
   const anomClr  = ag.total_anomalies > 0 ? 'red' : 'green';
+  const rateFloor = Math.floor(ag.message_rate);
 
   return `
 <div class="card" id="card-${ag.name}">
@@ -1150,10 +1151,10 @@ function agentCardHtml(ag) {
   <div class="agent-stats-row">
     <b id="msg-${ag.name}">${ag.total_messages}</b> msgs
     <span class="sep">|</span>
-    <b class="${anomClr}" id="anom-${ag.name}">${ag.total_anomalies}</b> anom
-    (<b id="anomp-${ag.name}">${anomPct}%</b>)
-    <span class="sep">|</span>
-    <b id="rate-${ag.name}">${ag.message_rate}/s</b>
+    <b class="${anomClr}" id="anom-${ag.name}">${ag.total_anomalies}</b> anom(<b id="anomp-${ag.name}">${anomPct}%</b>)
+  </div>
+  <div class="agent-stats-row">
+    <b id="rate-${ag.name}">${rateFloor}</b>/s
   </div>
   <div class="score-row">
     <div class="gauge-bar">
@@ -1260,7 +1261,7 @@ function updateAgentCard(name) {
   if (!card) { renderAll(); return; }
 
   const phase = ag.phase || 'COLD';
-  const anomPct = ag.total_messages > 0 ? (ag.total_anomalies / ag.total_messages * 100).toFixed(1) : '0.0';
+  const anomPct = ag.total_messages > 0 ? (ag.total_anomalies / ag.total_messages * 100).toFixed(2) : '0.00';
   const scorePct = Math.max(0, Math.min(100, (1 + ag.last_score) * 50));
   const scoreClr = ag.last_score < -0.1 ? 'var(--red)' : ag.last_score < 0 ? 'var(--yellow)' : 'var(--green)';
 
@@ -1281,7 +1282,7 @@ function updateAgentCard(name) {
   const silent = document.getElementById('silent-' + name);
   if (silent) silent.className = 'silent-badge' + (ag.is_silent ? ' show' : '');
 
-  setText('rate-' + name, ag.message_rate + '/s');
+  setText('rate-' + name, Math.floor(ag.message_rate));
 
   // Flash on anomaly
   if (ag.total_anomalies > 0 && ag.last_score < -0.1) {
