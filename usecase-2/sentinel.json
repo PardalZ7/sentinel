@@ -160,7 +160,7 @@
         "_comment": "temporal01 — aggregates success_watcher and failure_watcher signals. 4 buckets × 2 min = 8 min cycle. Reports to cortex01.",
         "name": "temporal01",
         "grpc_port": 50060,
-        "inputs": ["pipefy_automation_success_watcher", "pipefy_automation_failure_watcher"],
+        "inputs": ["success_watcher", "failure_watcher"],
         "cortex": [{ "host": "${UC2_ENGINE_HOST:-localhost}", "port": 50051 }],
         "silence_threshold_s": 45.0,
         "heartbeat_interval_s": 15,
