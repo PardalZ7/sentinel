@@ -317,15 +317,81 @@
     let templates = [
       {
         id: uid(),
-        name: 'Default',
+        name: 'Automation Success',
+        weight: 9,
+        template: JSON.stringify({
+          status: 'finished',
+          finished_at: 'Now()',
+          executed: 'CorruptLinked(true:0.8;false)',
+          id: 'UUID()',
+          automation_id: 3,
+          card_id: 3,
+          organization_id: 3,
+          user_id: 10,
+          action_name: 'move_single_card',
+          deleted_at: null,
+          created_at: 'Now()',
+          updated_at: 'Now()',
+          response: null,
+          log_type: null,
+          log_key: null,
+          log_details: null,
+          logs: null,
+        }, null, 2),
+      },
+      {
+        id: uid(),
+        name: 'Automation Failure',
         weight: 1,
         template: JSON.stringify({
-          field1: 'RandomString(20)',
-          field2: 'RandomInteger(13)',
-          field3: 'RandomDouble(50,2)',
-          list: [{ innerValue1: 'RandomString(5)', enum: 'OneOf(Teste01;Teste02;Teste03)' }]
+          status: 'failed',
+          id: 'UUID()',
+          automation_id: 4,
+          card_id: 5,
+          organization_id: 3,
+          user_id: 10,
+          action_name: 'move_single_card',
+          finished_at: 'Now()',
+          deleted_at: null,
+          created_at: 'Now()',
+          updated_at: 'Now()',
+          response: null,
+          executed: false,
+          log_type: 'error',
+          log_key: 'required_field',
+          log_details: {
+            label: 'Required field',
+            field_name: 'Required field',
+            repo_id: 16,
+            repo_name: 'Automations',
+            phase_name: 'Inbox',
+          },
+          logs: [
+            {
+              instance_class: 'Gatekeeper::AutomationMoveCard',
+              id: null,
+              key: '__automation_logs_error',
+              args: [
+                'required_field',
+                { label: 'Required field', field_name: 'Required field', repo_id: 16, repo_name: 'Automations', phase_name: 'Inbox' },
+              ],
+              timestamp: 'Now()',
+              type: 'error',
+            },
+            {
+              instance_class: 'Gatekeeper::AutomationMoveCard',
+              id: null,
+              key: 'base',
+              args: [
+                'Field "Required field" is required! Please fill it and you\'ll be ready to go!',
+                {},
+              ],
+              timestamp: 'Now()',
+              type: 'error',
+            },
+          ],
         }, null, 2),
-      }
+      },
     ];
 
     function uid() { return 't' + Math.random().toString(36).slice(2, 8); }
@@ -363,7 +429,7 @@
         </div>
         <textarea spellcheck="false">${escHtml(t.template)}</textarea>
         <div class="template-hint">
-          <code>RandomString(N)</code> · <code>RandomInteger(MAX)</code> · <code>RandomDouble(MAX,DECIMALS)</code> · <code>OneOf(A;B;C)</code>
+          <code>RandomString(N)</code> · <code>RandomInteger(MAX)</code> · <code>RandomDouble(MAX,DECIMALS)</code> · <code>OneOf(A;B;C)</code> · <code>WeightedOf(A:w1;B:w2)</code> · <code>Now()</code> · <code>UUID()</code> · <code>CorruptLinked(goodVal:rate;badVal)</code>
         </div>
       `;
 

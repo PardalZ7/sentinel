@@ -1,5 +1,6 @@
 const express = require('express');
 const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
+const { randomUUID } = require('crypto');
 
 const app = express();
 app.use(express.json());
@@ -22,9 +23,21 @@ function getTopicArn() {
 
 // ── Template evaluation ──────────────────────────────────────────────────────
 
+function parseVal(s) {
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  if (s === 'null') return null;
+  const n = Number(s);
+  if (!isNaN(n) && s.trim() !== '') return n;
+  return s;
+}
+
 function evalValue(raw) {
   if (typeof raw !== 'string') return raw;
   let m;
+
+  if (raw === 'Now()') return new Date().toISOString();
+  if (raw === 'UUID()') return randomUUID();
 
   m = raw.match(/^RandomString\((\d+)\)$/);
   if (m) return randomString(parseInt(m[1]));
@@ -38,7 +51,30 @@ function evalValue(raw) {
   m = raw.match(/^OneOf\((.+)\)$/);
   if (m) {
     const opts = m[1].split(';');
-    return opts[Math.floor(Math.random() * opts.length)];
+    return parseVal(opts[Math.floor(Math.random() * opts.length)]);
+  }
+
+  m = raw.match(/^WeightedOf\((.+)\)$/);
+  if (m) {
+    const entries = m[1].split(';').map(e => {
+      const sep = e.lastIndexOf(':');
+      return { val: parseVal(e.slice(0, sep)), w: parseFloat(e.slice(sep + 1)) || 0 };
+    });
+    const total = entries.reduce((s, e) => s + e.w, 0);
+    let r = Math.random() * total;
+    for (const e of entries) { r -= e.w; if (r <= 0) return e.val; }
+    return entries[entries.length - 1].val;
+  }
+
+  // CorruptLinked(goodVal:goodRate;badVal)
+  // effective good rate = goodRate * (1 - errorRateCorrupt)
+  m = raw.match(/^CorruptLinked\((.+):([0-9.]+);(.+)\)$/);
+  if (m) {
+    const goodVal = parseVal(m[1]);
+    const baseGoodRate = parseFloat(m[2]);
+    const badVal = parseVal(m[3]);
+    const effectiveGoodRate = baseGoodRate * (1 - config.errorRateCorrupt);
+    return Math.random() < effectiveGoodRate ? goodVal : badVal;
   }
 
   return raw;
@@ -111,13 +147,79 @@ function pickTemplate(templates) {
 const DEFAULT_TEMPLATES = [
   {
     id: 't1',
-    name: 'Default',
+    name: 'Automation Success',
+    weight: 9,
+    template: JSON.stringify({
+      status: 'finished',
+      finished_at: 'Now()',
+      executed: 'CorruptLinked(true:0.8;false)',
+      id: 'UUID()',
+      automation_id: 3,
+      card_id: 3,
+      organization_id: 3,
+      user_id: 10,
+      action_name: 'move_single_card',
+      deleted_at: null,
+      created_at: 'Now()',
+      updated_at: 'Now()',
+      response: null,
+      log_type: null,
+      log_key: null,
+      log_details: null,
+      logs: null,
+    }, null, 2),
+  },
+  {
+    id: 't2',
+    name: 'Automation Failure',
     weight: 1,
     template: JSON.stringify({
-      field1: 'RandomString(20)',
-      field2: 'RandomInteger(13)',
-      field3: 'RandomDouble(50,2)',
-      list: [{ innerValue1: 'RandomString(5)', enum: 'OneOf(Teste01;Teste02;Teste03)' }],
+      status: 'failed',
+      id: 'UUID()',
+      automation_id: 4,
+      card_id: 5,
+      organization_id: 3,
+      user_id: 10,
+      action_name: 'move_single_card',
+      finished_at: 'Now()',
+      deleted_at: null,
+      created_at: 'Now()',
+      updated_at: 'Now()',
+      response: null,
+      executed: false,
+      log_type: 'error',
+      log_key: 'required_field',
+      log_details: {
+        label: 'Required field',
+        field_name: 'Required field',
+        repo_id: 16,
+        repo_name: 'Automations',
+        phase_name: 'Inbox',
+      },
+      logs: [
+        {
+          instance_class: 'Gatekeeper::AutomationMoveCard',
+          id: null,
+          key: '__automation_logs_error',
+          args: [
+            'required_field',
+            { label: 'Required field', field_name: 'Required field', repo_id: 16, repo_name: 'Automations', phase_name: 'Inbox' },
+          ],
+          timestamp: 'Now()',
+          type: 'error',
+        },
+        {
+          instance_class: 'Gatekeeper::AutomationMoveCard',
+          id: null,
+          key: 'base',
+          args: [
+            'Field "Required field" is required! Please fill it and you\'ll be ready to go!',
+            {},
+          ],
+          timestamp: 'Now()',
+          type: 'error',
+        },
+      ],
     }, null, 2),
   },
 ];
