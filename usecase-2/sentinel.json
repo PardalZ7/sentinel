@@ -58,7 +58,7 @@
         "name": "pipefy_automation_success_watcher",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent01-pairs" },
         "test_buffer_size": 150,
-        "cortex": [{ "host": "localhost", "port": 50060 }],
+        "cortex": [{ "host": "${UC2_ENGINE_HOST:-localhost}", "port": 50060 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
@@ -108,7 +108,7 @@
         "name": "pipefy_automation_failure_watcher",
         "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent02-pairs" },
         "test_buffer_size": 150,
-        "cortex": [{ "host": "localhost", "port": 50060 }],
+        "cortex": [{ "host": "${UC2_ENGINE_HOST:-localhost}", "port": 50060 }],
         "reporting": {
           "heartbeat_interval_s": 15,
           "send_all_events": false
@@ -161,7 +161,7 @@
         "name": "temporal01",
         "grpc_port": 50060,
         "inputs": ["pipefy_automation_success_watcher", "pipefy_automation_failure_watcher"],
-        "cortex": [{ "host": "localhost", "port": 50051 }],
+        "cortex": [{ "host": "${UC2_ENGINE_HOST:-localhost}", "port": 50051 }],
         "silence_threshold_s": 45.0,
         "heartbeat_interval_s": 15,
         "bucket": {

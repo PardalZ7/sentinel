@@ -49,10 +49,18 @@ def _load_file(path: str) -> dict:
 
 
 def _interpolate_env_vars(obj: Any) -> Any:
-    """Replace ${VAR} placeholders in all string values with environment variables."""
+    """Replace ${VAR} and ${VAR:-default} placeholders with environment variables."""
     if isinstance(obj, str):
         import re
-        return re.sub(r"\$\{([^}]+)\}", lambda m: os.environ.get(m.group(1), m.group(0)), obj)
+
+        def _replace(m: re.Match) -> str:
+            expr = m.group(1)
+            if ":-" in expr:
+                var, default = expr.split(":-", 1)
+                return os.environ.get(var, default)
+            return os.environ.get(expr, m.group(0))
+
+        return re.sub(r"\$\{([^}]+)\}", _replace, obj)
     if isinstance(obj, dict):
         return {k: _interpolate_env_vars(v) for k, v in obj.items()}
     if isinstance(obj, list):
