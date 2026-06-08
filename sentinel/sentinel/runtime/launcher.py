@@ -265,7 +265,7 @@ class AgentRunner:
             threshold = current_det.auto_infer_fp_threshold
             if (
                 threshold is not None
-                and updated_det.phase == ModelPhase.TRAINING
+                and current_det.phase == ModelPhase.TRAINING
                 and new_fp_rate < threshold
             ):
                 logger.info(
