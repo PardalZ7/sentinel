@@ -42,7 +42,10 @@ def run_detector_test(detector: IDetector, det_state: DetectorState) -> dict:
 
     buffer = det_state.test_buffer
     if not buffer:
-        return {"samples_run": 0, "failed": 0, "fp_rate": 0.0}
+        result: dict = {"samples_run": 0, "failed": 0, "fp_rate": 0.0}
+        result = _append_denial_recall(detector, det_state, result)
+        logger.info("detector_test_complete", detector=detector.name, **result)
+        return result
 
     failed = 0
     for sample in buffer:
@@ -60,6 +63,7 @@ def run_detector_test(detector: IDetector, det_state: DetectorState) -> dict:
 
     fp_rate = failed / len(buffer)
     result = {"samples_run": len(buffer), "failed": failed, "fp_rate": round(fp_rate, 4)}
+    result = _append_denial_recall(detector, det_state, result)
 
     logger.info(
         "detector_test_complete",
@@ -67,3 +71,29 @@ def run_detector_test(detector: IDetector, det_state: DetectorState) -> dict:
         **result,
     )
     return result
+
+
+def _append_denial_recall(
+    detector: IDetector, det_state: DetectorState, result: dict
+) -> dict:
+    """If det_state has a non-empty denial_buffer, score it and add recall to result."""
+    if not det_state.denial_buffer:
+        return result
+
+    recalled = 0
+    for sample in det_state.denial_buffer:
+        try:
+            score = detector.score(det_state.model, sample)
+            if detector.is_anomaly(score):
+                recalled += 1
+        except Exception as exc:
+            logger.warning(
+                "denial_recall_test_score_error",
+                detector=detector.name,
+                error=str(exc),
+            )
+    return {
+        **result,
+        "denial_buffer_size": len(det_state.denial_buffer),
+        "denial_recall": round(recalled / len(det_state.denial_buffer), 4),
+    }

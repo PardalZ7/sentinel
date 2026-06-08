@@ -46,6 +46,7 @@ class ChampionResult:
     model: Any          # trained model object (opaque, algorithm-specific)
     fp_rate: float
     is_new_champion: bool
+    denial_recall: float | None = None  # recall on denial_buffer; None if buffer was empty
 
 
 def _evaluate_fp_rate_sync(
@@ -109,6 +110,38 @@ def evaluate_fp_rate(
     return _evaluate_fp_rate_sync(detector, model, test_buffer)
 
 
+def evaluate_denial_recall(
+    detector: IDetector,
+    model: Any,
+    denial_buffer: list[dict],
+) -> float:
+    """Score every sample in the denial_buffer and return the recall rate.
+
+    A denial_buffer sample is a known-bad event (flagged by a business rule).
+    Recall measures how many of these the model correctly identifies as anomalous.
+    Higher is better.
+
+    Returns 1.0 if the buffer is empty (no information — do not penalise).
+    """
+    if not denial_buffer:
+        return 1.0
+
+    recalled = 0
+    for sample in denial_buffer:
+        try:
+            score = detector.score(model, sample)
+            if detector.is_anomaly(score, model):
+                recalled += 1
+        except Exception as exc:
+            logger.warning(
+                "denial_recall_score_error",
+                detector=detector.name,
+                error=str(exc),
+            )
+
+    return recalled / len(denial_buffer)
+
+
 def select_champion(
     challenger: Any,
     challenger_fp_rate: float,
@@ -156,27 +189,74 @@ async def run_selection(
     current_champion: Any | None,
     current_champion_fp_rate: float,
     test_buffer: list[dict],
+    denial_buffer: list[dict] | None = None,
+    min_denial_recall: float = 0.0,
 ) -> ChampionResult:
     """Convenience facade: evaluate challenger then select champion.
 
     If the test buffer is empty, the challenger is accepted unconditionally
     (fp_rate stored as 0.0 for display purposes).
+
+    When denial_buffer is non-empty and min_denial_recall > 0, the challenger
+    must also achieve at least min_denial_recall recall on the denial_buffer
+    to be promoted. A challenger that passes FP rate but fails recall is rejected.
     """
+    denial_buffer = denial_buffer or []
+
     if not test_buffer:
+        denial_recall = evaluate_denial_recall(detector, challenger, denial_buffer)
+        if min_denial_recall > 0.0 and denial_recall < min_denial_recall:
+            logger.info(
+                "challenger_rejected_low_recall",
+                detector=detector.name,
+                denial_recall=round(denial_recall, 4),
+                min_denial_recall=min_denial_recall,
+            )
+            return ChampionResult(
+                model=current_champion,
+                fp_rate=current_champion_fp_rate,
+                is_new_champion=False,
+                denial_recall=denial_recall,
+            )
         return ChampionResult(
             model=challenger,
             fp_rate=0.0,
             is_new_champion=True,
+            denial_recall=denial_recall if denial_buffer else None,
         )
 
     loop = asyncio.get_event_loop()
     challenger_fp_rate = await loop.run_in_executor(
         None, _evaluate_fp_rate_sync, detector, challenger, test_buffer
     )
-    return select_champion(
+
+    denial_recall = evaluate_denial_recall(detector, challenger, denial_buffer)
+
+    if min_denial_recall > 0.0 and denial_recall < min_denial_recall:
+        logger.info(
+            "challenger_rejected_low_recall",
+            detector=detector.name,
+            challenger_fp_rate=round(challenger_fp_rate, 4),
+            denial_recall=round(denial_recall, 4),
+            min_denial_recall=min_denial_recall,
+        )
+        return ChampionResult(
+            model=current_champion,
+            fp_rate=current_champion_fp_rate,
+            is_new_champion=False,
+            denial_recall=denial_recall,
+        )
+
+    result = select_champion(
         challenger,
         challenger_fp_rate,
         current_champion,
         current_champion_fp_rate,
         detector.name,
+    )
+    return ChampionResult(
+        model=result.model,
+        fp_rate=result.fp_rate,
+        is_new_champion=result.is_new_champion,
+        denial_recall=denial_recall if denial_buffer else None,
     )

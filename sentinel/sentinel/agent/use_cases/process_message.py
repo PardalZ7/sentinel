@@ -232,6 +232,13 @@ async def _handle_denial_rule_hit(
         await reporter.publish_event(event)
     except Exception as exc:
         logger.warning("reporter_unavailable", error=str(exc))
+
+    # Accumulate denied samples into each TRAINING detector's denial_buffer so
+    # that champion selection can later validate recall on known-bad samples.
+    for det_state in state.detectors.values():
+        if det_state.phase == ModelPhase.TRAINING:
+            det_state.denial_buffer.append(event_dict)
+
     return replace(
         state,
         message_count=state.message_count + 1,

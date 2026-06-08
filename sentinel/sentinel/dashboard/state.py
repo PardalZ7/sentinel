@@ -50,6 +50,8 @@ class DetectorSnapshot:
     test_sample_rate: float = 0.0
     last_test_result: dict = field(default_factory=dict)
     auto_infer_fp_threshold: float | None = None
+    denial_buffer_size: int = 0
+    min_denial_recall: float = 0.0
 
 
 @dataclass
@@ -339,6 +341,8 @@ class DashboardState:
                 phase=det_state.phase.value,
                 test_sample_rate=det_state.test_sample_rate,
                 auto_infer_fp_threshold=det_state.auto_infer_fp_threshold,
+                denial_buffer_size=det_state.denial_buffer_size,
+                min_denial_recall=det_state.min_denial_recall,
             ))
         snap.detectors = det_snaps
         if det_snaps:

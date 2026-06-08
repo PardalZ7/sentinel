@@ -67,6 +67,9 @@ class DetectorState:
     auto_infer_fp_threshold: float | None = None           # None = disabled; float = auto-transition to INFERENCE when champion_fp_rate < threshold
     training_in_progress: bool = False                     # True while background training task is running
     gating_detector: str | None = None                     # name of detector used to filter contaminated training samples
+    denial_buffer: deque = field(default_factory=deque)    # samples flagged by denial rules during TRAINING, used for recall validation
+    denial_buffer_size: int = 200                          # maxlen of denial_buffer; 0 = unbounded
+    min_denial_recall: float = 0.0                         # minimum recall on denial_buffer for challenger promotion; 0.0 = disabled
 
     def reset(self) -> "DetectorState":
         """Return a copy with all runtime state cleared but configuration preserved."""
@@ -77,6 +80,7 @@ class DetectorState:
             model=None,
             training_buffer=[],
             test_buffer=deque(),
+            denial_buffer=deque(maxlen=self.denial_buffer_size if self.denial_buffer_size > 0 else None),
             last_test_result={},
             champion_fp_rate=1.0,
             challengers_rejected=0,

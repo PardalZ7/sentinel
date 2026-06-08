@@ -80,7 +80,9 @@
             "anomaly_threshold": -0.1,
             "n_estimators": 100,
             "contamination": "auto",
-            "auto_infer_fp_threshold": 0.05
+            "auto_infer_fp_threshold": 0.05,
+            "denial_buffer_size": 200,
+            "min_denial_recall": 0.5
           }
         ]
       },
@@ -111,7 +113,9 @@
             "anomaly_threshold": -0.1,
             "n_estimators": 100,
             "contamination": "auto",
-            "auto_infer_fp_threshold": 0.05
+            "auto_infer_fp_threshold": 0.05,
+            "denial_buffer_size": 200,
+            "min_denial_recall": 0.5
           }
         ]
       }

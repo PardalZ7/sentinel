@@ -180,6 +180,7 @@ class AgentRunner:
 
         buffer_snapshot = list(det_state.training_buffer)
         test_buffer_snapshot = list(det_state.test_buffer)
+        denial_buffer_snapshot = list(det_state.denial_buffer)
 
         try:
             challenger, _ = await run_training(detector, buffer_snapshot, self.agent_config.name)
@@ -191,6 +192,8 @@ class AgentRunner:
                 current_champion=det_state.model,
                 current_champion_fp_rate=det_state.champion_fp_rate,
                 test_buffer=test_buffer_snapshot,
+                denial_buffer=denial_buffer_snapshot,
+                min_denial_recall=det_state.min_denial_recall,
             )
 
             new_model = result.model
@@ -1292,6 +1295,9 @@ def build_agent(
             auto_infer_fp_threshold=dc.auto_infer_fp_threshold,
             gating_detector=dc.gating_detector,
             max_challengers_rejected=dc.max_challengers_rejected,
+            denial_buffer=deque(maxlen=dc.denial_buffer_size if dc.denial_buffer_size > 0 else None),
+            denial_buffer_size=dc.denial_buffer_size,
+            min_denial_recall=dc.min_denial_recall,
         )
 
     state = AgentState(

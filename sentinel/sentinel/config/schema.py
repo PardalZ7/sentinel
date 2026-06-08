@@ -165,6 +165,14 @@ class DetectorConfig(BaseModel):
     # when the model cannot converge (e.g. training data is too noisy).
     max_challengers_rejected: int = 0
 
+    # Denial buffer: accumulates samples flagged by denial rules during TRAINING for
+    # recall validation at champion promotion time.
+    # denial_buffer_size: max samples retained (0 = unbounded).
+    # min_denial_recall: minimum fraction of denial_buffer samples the challenger must
+    # flag as anomalous to be promoted. 0.0 = disabled (no recall check).
+    denial_buffer_size: int = 200
+    min_denial_recall: float = 0.0
+
 
 class InputConfig(BaseModel):
     """Configuration for one input stream in a CorrelationEngine."""

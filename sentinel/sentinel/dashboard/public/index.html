@@ -1361,7 +1361,12 @@ function _testOutputHtml(res) {
   if (!res || Object.keys(res).length === 0) return '';
   if (res.error) return `<span style="color:var(--red)">${res.error}</span>`;
   const failRate = res.samples_run > 0 ? (res.failed / res.samples_run * 100).toFixed(1) : '0.0';
-  return `${res.samples_run} samples · <b style="color:${res.failed > 0 ? 'var(--red)' : 'var(--green)'}">${res.failed} failed</b> (${failRate}%)`;
+  let html = `${res.samples_run} samples · <b style="color:${res.failed > 0 ? 'var(--red)' : 'var(--green)'}">${res.failed} failed</b> (${failRate}%)`;
+  if (res.denial_recall !== undefined) {
+    const recallColor = res.denial_recall >= 0.5 ? 'var(--green)' : 'var(--red)';
+    html += ` · denial recall: <b style="color:${recallColor}">${(res.denial_recall * 100).toFixed(0)}%</b> <span style="color:var(--muted)">(${res.denial_buffer_size} samples)</span>`;
+  }
+  return html;
 }
 
 function _applyTestResult(outEl, res) {
@@ -1742,6 +1747,7 @@ function _testModalBodyHtml(type, name) {
           <div style="display:flex;gap:16px;font-size:11px;color:var(--muted)">
             <span>Champion FP: <b id="tdet-fp-${name}-${det.name}" style="color:var(--green)">${fpRate}</b></span>
             <span>Rejected: <b id="tdet-rej-${name}-${det.name}" style="color:var(--text)">${rej}</b></span>
+            ${det.min_denial_recall > 0 ? `<span>Min recall: <b style="color:var(--muted)">${(det.min_denial_recall * 100).toFixed(0)}%</b></span>` : ''}
           </div>
         </div>`;
     });
@@ -2417,6 +2423,14 @@ function _renderDetectorModal() {
       <div class="detail-cell">
         <div class="detail-cell-lbl">Test buffer</div>
         <div class="detail-cell-val">${det.test_buffer_count ?? 0} samples</div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Denial buffer</div>
+        <div class="detail-cell-val">${det.denial_buffer_size > 0 ? 'max ' + det.denial_buffer_size + ' samples' : '—'}</div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-lbl">Min denial recall</div>
+        <div class="detail-cell-val">${det.min_denial_recall > 0 ? (det.min_denial_recall * 100).toFixed(0) + '%' : '—'}</div>
       </div>
     </div>
     <div style="margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:7px">
