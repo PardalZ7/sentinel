@@ -4,7 +4,9 @@ WORKDIR /app
 
 COPY . .
 
-RUN pip install -e ".[agent]"
-RUN chmod +x entrypoint.sh
+RUN pip install -e "sentinel/.[agent]"
+RUN chmod +x sentinel/entrypoint.sh
+
+WORKDIR /app/sentinel
 
 CMD ["./entrypoint.sh"]
