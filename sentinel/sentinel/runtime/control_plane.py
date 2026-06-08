@@ -52,6 +52,7 @@ def register_routes(
             "topology_deployed",
             topology=tid,
             agents=[a.name for a in config.agents],
+            temporal=[t.name for t in (config.temporal_layers or [])],
             cortex=[c.name for c in config.cortex],
         )
         return web.json_response(
@@ -59,6 +60,7 @@ def register_routes(
                 "id": tid,
                 "status": "applied",
                 "agents": [a.name for a in config.agents],
+                "temporal": [t.name for t in (config.temporal_layers or [])],
                 "cortex": [c.name for c in config.cortex],
             },
             status=201,

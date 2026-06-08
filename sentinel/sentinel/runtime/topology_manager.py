@@ -42,13 +42,14 @@ class TopologyManager:
         - Components running but removed from desired → cancelled.
         - Infrastructure (redis, aws, storage_path) is always taken from base_config.
         """
-        from sentinel.runtime.launcher import build_agent, build_cortex, build_correlation_engine
+        from sentinel.runtime.launcher import build_agent, build_cortex, build_correlation_engine, build_temporal_layer
 
         merged = self._merge_infra(topology_config)
         desired_engines = {e.name: e for e in merged.correlation_engines}
         desired_agents = {a.name: a for a in merged.agents}
         desired_cortex = {c.name: c for c in merged.cortex}
-        desired_all = {**desired_engines, **desired_agents, **desired_cortex}
+        desired_temporal = {t.name: t for t in (merged.temporal_layers or [])}
+        desired_all = {**desired_engines, **desired_agents, **desired_cortex, **desired_temporal}
 
         existing = self._topologies.get(topology_id)
         if existing:
@@ -95,6 +96,13 @@ class TopologyManager:
                 task = asyncio.create_task(runner.run(), name=f"dyn-cortex-{name}")
                 topo.tasks[name] = task
                 logger.info("topology_cortex_started", cortex=name, topology=topology_id)
+
+        for name, tl_config in desired_temporal.items():
+            if name not in topo.tasks or topo.tasks[name].done():
+                runner = build_temporal_layer(tl_config, merged, self._dashboard_state)
+                task = asyncio.create_task(runner.run(), name=f"dyn-temporal-{name}")
+                topo.tasks[name] = task
+                logger.info("topology_temporal_started", temporal=name, topology=topology_id)
 
     async def remove(self, topology_id: str) -> None:
         topo = self._topologies.pop(topology_id, None)
