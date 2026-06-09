@@ -21,6 +21,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy only what runtime needs
 COPY sentinel/sentinel/ sentinel/sentinel/
+COPY sentinel/sentinel-cloud.json sentinel/sentinel-cloud.json
 COPY sentinel/entrypoint.sh sentinel/entrypoint.sh
 RUN chmod +x sentinel/entrypoint.sh
 
