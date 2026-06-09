@@ -78,6 +78,8 @@ class HeartbeatEvent:
     error_rate_last_window: float
     last_message_timestamp: datetime
     model_phase: ModelPhase
+    total_messages_processed: int = 0
+    total_anomalies_processed: int = 0
 
 
 @dataclass

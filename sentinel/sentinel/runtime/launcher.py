@@ -162,6 +162,8 @@ class AgentRunner:
                 error_rate_last_window=delta_err / max(delta_msg, 1),
                 last_message_timestamp=now,
                 model_phase=self.state.phase,
+                total_messages_processed=self.state.message_count,
+                total_anomalies_processed=self.state.error_count,
             )
             try:
                 await self.reporter.publish_heartbeat(heartbeat)

@@ -231,6 +231,9 @@ class DashboardState:
         snap.last_seen = hb.timestamp.isoformat()
         snap.is_silent = False
 
+        snap.total_messages = max(snap.total_messages, hb.total_messages_processed)
+        snap.total_anomalies = max(snap.total_anomalies, hb.total_anomalies_processed)
+
         rec = EventRecord(
             ts=hb.timestamp.isoformat(),
             kind="heartbeat",
@@ -240,7 +243,12 @@ class DashboardState:
             anomaly_type="",
             phase=hb.model_phase.value,
             latency_ms=0.0,
-            extra={"rate": snap.message_rate, "err_rate": snap.error_rate},
+            extra={
+                "rate": snap.message_rate,
+                "err_rate": snap.error_rate,
+                "total_msgs": snap.total_messages,
+                "total_anoms": snap.total_anomalies,
+            },
         )
         self.recent_events.append(rec)
         self._push_sse("heartbeat", asdict(rec))

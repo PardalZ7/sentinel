@@ -1005,6 +1005,8 @@ function applyHeartbeat(hb) {
   ag.phase         = hb.phase || ag.phase;
   ag.message_rate  = hb.extra?.rate ?? ag.message_rate;
   ag.error_rate    = hb.extra?.err_rate ?? ag.error_rate;
+  if (hb.extra?.total_msgs != null) ag.total_messages  = hb.extra.total_msgs;
+  if (hb.extra?.total_anoms != null) ag.total_anomalies = hb.extra.total_anoms;
   ag.last_seen     = hb.ts;
   ag.is_silent     = false;
   updateAgentCard(hb.agent);
