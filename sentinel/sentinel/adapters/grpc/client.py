@@ -74,6 +74,7 @@ class GrpcReporter(IReporter):
 
     async def publish_event(self, event: ProcessedEvent) -> None:
         """Send a ProcessedEvent to the Cortex via gRPC."""
+        reconnected = False
         if self._standalone:
             # Attempt reconnect with backoff
             connected = await self._try_connect()
@@ -82,6 +83,7 @@ class GrpcReporter(IReporter):
                 return
             self._standalone = False
             self._backoff_s = 1.0
+            reconnected = True
 
         proto = sentinel_pb2.ProcessedEventProto(
             agent_name=event.agent_name,
@@ -113,6 +115,19 @@ class GrpcReporter(IReporter):
             self._stub = None
             await asyncio.sleep(min(self._backoff_s, _MAX_BACKOFF_S))
             self._backoff_s = min(self._backoff_s * 2, _MAX_BACKOFF_S)
+            return
+
+        if reconnected and event.source_phase is not None:
+            from sentinel.domain.models import ModelPhase
+            if event.source_phase == ModelPhase.INFERENCE:
+                logger.info("grpc_reconnected_resend_wakeup", agent=event.agent_name)
+                wakeup = WakeupEvent(
+                    source_name=event.agent_name,
+                    source_type="AGENT",
+                    source_phase=ModelPhase.INFERENCE,
+                    timestamp=datetime.now(tz=timezone.utc),
+                )
+                await self.publish_wakeup(wakeup)
 
     async def publish_heartbeat(self, heartbeat: HeartbeatEvent) -> None:
         """Send a HeartbeatEvent to the Cortex via gRPC."""
