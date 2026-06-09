@@ -89,6 +89,32 @@ class SentinelCortexServicer(sentinel_pb2_grpc.SentinelCortexServicer):
             logger.error("grpc_report_temporal_anomaly_signal_failed", error=str(exc))
             return sentinel_pb2.Ack(ok=False)
 
+    async def ReportWakeup(
+        self,
+        request: sentinel_pb2.WakeupProto,
+        context: grpc.aio.ServicerContext,
+    ) -> sentinel_pb2.Ack:
+        logger.info("grpc_report_wakeup", source=request.source_name, source_type=request.source_type)
+        try:
+            await self._event_handler(request)
+            return sentinel_pb2.Ack(ok=True)
+        except Exception as exc:
+            logger.error("grpc_report_wakeup_failed", error=str(exc))
+            return sentinel_pb2.Ack(ok=False)
+
+    async def ReportSleep(
+        self,
+        request: sentinel_pb2.SleepProto,
+        context: grpc.aio.ServicerContext,
+    ) -> sentinel_pb2.Ack:
+        logger.info("grpc_report_sleep", source=request.source_name, source_type=request.source_type)
+        try:
+            await self._event_handler(request)
+            return sentinel_pb2.Ack(ok=True)
+        except Exception as exc:
+            logger.error("grpc_report_sleep_failed", error=str(exc))
+            return sentinel_pb2.Ack(ok=False)
+
 
 def create_server(
     host: str,

@@ -20,7 +20,7 @@ from grpc import aio
 
 from sentinel.adapters.grpc.generated import sentinel_pb2, sentinel_pb2_grpc
 from sentinel.domain.errors import GrpcUnavailableError
-from sentinel.domain.models import HeartbeatEvent, ProcessedEvent, TemporalAnomalySignal, TemporalHeartbeatEvent
+from sentinel.domain.models import HeartbeatEvent, ProcessedEvent, SleepEvent, TemporalAnomalySignal, TemporalHeartbeatEvent, WakeupEvent
 from sentinel.domain.ports.reporter import IReporter
 from sentinel.logging.logger import get_logger
 
@@ -95,6 +95,7 @@ class GrpcReporter(IReporter):
             payload_schema_hash=event.payload_schema_hash,
             input_size_bytes=event.input_size_bytes,
             output_size_bytes=event.output_size_bytes,
+            source_phase=event.source_phase.value if event.source_phase else "",
         )
 
         try:
@@ -233,6 +234,62 @@ class GrpcReporter(IReporter):
                 layer=signal.layer_name,
                 error=str(exc),
             )
+            self._standalone = True
+            self._channel = None
+            self._stub = None
+            await asyncio.sleep(min(self._backoff_s, _MAX_BACKOFF_S))
+            self._backoff_s = min(self._backoff_s * 2, _MAX_BACKOFF_S)
+
+    async def publish_wakeup(self, event: WakeupEvent) -> None:
+        """Send a WakeupEvent via gRPC."""
+        if self._standalone:
+            logger.info("grpc_standalone_mode_wakeup", source=event.source_name)
+            connected = await self._try_connect()
+            if not connected:
+                return
+            self._standalone = False
+            self._backoff_s = 1.0
+
+        proto = sentinel_pb2.WakeupProto(
+            source_name=event.source_name,
+            source_type=event.source_type,
+            source_phase=event.source_phase.value,
+            timestamp_ms=_to_ms(event.timestamp),
+        )
+        try:
+            stub = self._get_stub()
+            await stub.ReportWakeup(proto)
+            self._backoff_s = 1.0
+        except grpc.aio.AioRpcError as exc:
+            logger.warning("grpc_publish_wakeup_failed", source=event.source_name, error=str(exc))
+            self._standalone = True
+            self._channel = None
+            self._stub = None
+            await asyncio.sleep(min(self._backoff_s, _MAX_BACKOFF_S))
+            self._backoff_s = min(self._backoff_s * 2, _MAX_BACKOFF_S)
+
+    async def publish_sleep(self, event: SleepEvent) -> None:
+        """Send a SleepEvent via gRPC."""
+        if self._standalone:
+            logger.info("grpc_standalone_mode_sleep", source=event.source_name)
+            connected = await self._try_connect()
+            if not connected:
+                return
+            self._standalone = False
+            self._backoff_s = 1.0
+
+        proto = sentinel_pb2.SleepProto(
+            source_name=event.source_name,
+            source_type=event.source_type,
+            source_phase=event.source_phase.value,
+            timestamp_ms=_to_ms(event.timestamp),
+        )
+        try:
+            stub = self._get_stub()
+            await stub.ReportSleep(proto)
+            self._backoff_s = 1.0
+        except grpc.aio.AioRpcError as exc:
+            logger.warning("grpc_publish_sleep_failed", source=event.source_name, error=str(exc))
             self._standalone = True
             self._channel = None
             self._stub = None

@@ -355,6 +355,8 @@ async def _score_and_train(
 
     # ── Build and publish event ───────────────────────────────────────
     schema_hash = event_dict["payload_schema_hash"]
+    all_in_inference = all(d.phase == ModelPhase.INFERENCE for d in state.detectors.values())
+    agent_phase = ModelPhase.INFERENCE if all_in_inference else ModelPhase.TRAINING
     event = ProcessedEvent(
         agent_name=agent_config.name,
         correlation_id=pair.correlation_id,
@@ -369,13 +371,13 @@ async def _score_and_train(
         output_size_bytes=pair.output_size_bytes,
         input_body=pair.input_body if detected_anomaly else None,
         output_body=pair.output_body if detected_anomaly else None,
+        source_phase=agent_phase,
     )
 
-    any_in_training = any(d.phase == ModelPhase.TRAINING for d in state.detectors.values())
-    send = (
+    # Only publish to temporal/cortex when all detectors are in INFERENCE
+    send = all_in_inference and (
         agent_config.reporting.send_all_events
         or detected_anomaly
-        or any_in_training
         or bool(agent_config.cortex)
     )
     if send:

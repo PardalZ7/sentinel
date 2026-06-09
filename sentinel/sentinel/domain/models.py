@@ -22,6 +22,7 @@ class ModelPhase(str, Enum):
     WARMUP = "WARMUP"
     INFERENCE = "INFERENCE"
     COLD = "COLD"
+    SUSPENDED = "SUSPENDED"
 
 
 class AlertSeverity(str, Enum):
@@ -66,6 +67,7 @@ class ProcessedEvent:
     output_size_bytes: int
     input_body: dict | None = None
     output_body: dict | None = None
+    source_phase: "ModelPhase | None" = None
 
 
 @dataclass
@@ -197,6 +199,22 @@ class TemporalAnomalySignal:
     is_throughput_anomaly: bool
     contributing_agents: list[str]
     bucket_confidence: int
+
+
+@dataclass
+class WakeupEvent:
+    source_name: str
+    source_type: str  # "AGENT" | "TEMPORAL" | "CORTEX"
+    source_phase: ModelPhase
+    timestamp: datetime
+
+
+@dataclass
+class SleepEvent:
+    source_name: str
+    source_type: str  # "AGENT" | "TEMPORAL" | "CORTEX"
+    source_phase: ModelPhase
+    timestamp: datetime
 
 
 @dataclass

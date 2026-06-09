@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sentinel.domain.models import ModelPhase, ProcessedEvent, WindowSnapshot
+from sentinel.domain.models import ProcessedEvent, WindowSnapshot
 
 
 @dataclass
@@ -16,11 +16,8 @@ class WindowAccumulator:
 def add_event(
     acc: WindowAccumulator,
     event: ProcessedEvent,
-    agent_phase: ModelPhase,
 ) -> WindowAccumulator:
-    """Add event to the current window. Discards events from agents in TRAINING."""
-    if agent_phase == ModelPhase.TRAINING:
-        return acc
+    """Add event to the current window."""
     acc.events.append(event)
     acc.active_agents.add(event.agent_name)
     return acc

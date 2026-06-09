@@ -127,6 +127,11 @@ class AgentRunner:
             agent=self.agent_config.name,
             detectors=list(self.state.detectors.keys()),
         )
+
+        # If all detectors already start in INFERENCE (model loaded from disk), wake up downstream
+        if all(d.phase == ModelPhase.INFERENCE for d in self.state.detectors.values()):
+            await self._send_wakeup()
+
         async def _guarded_pairs_loop() -> None:
             try:
                 await self._run_pairs_loop()
@@ -378,15 +383,46 @@ class AgentRunner:
             old_phase = det.phase
             det.phase = phase
             logger.info("phase_transition", agent=self.agent_config.name, detector=dname, from_phase=old_phase, to_phase=phase)
-        # Force send_all_events when entering TRAINING so Cortex receives all data
-        if phase == ModelPhase.TRAINING:
-            self.agent_config.reporting.send_all_events = True
         logger.info(
             "agent_phase_changed",
             agent=self.agent_config.name,
             detector=detector_name or "all",
             phase=new_phase,
         )
+
+        all_in_inference = all(d.phase == ModelPhase.INFERENCE for d in self.state.detectors.values())
+        any_in_training = any(d.phase == ModelPhase.TRAINING for d in self.state.detectors.values())
+
+        if phase == ModelPhase.INFERENCE and all_in_inference:
+            await self._send_wakeup()
+        elif phase == ModelPhase.TRAINING and any_in_training:
+            await self._send_sleep()
+
+    async def _send_wakeup(self) -> None:
+        from sentinel.domain.models import WakeupEvent
+        event = WakeupEvent(
+            source_name=self.agent_config.name,
+            source_type="AGENT",
+            source_phase=ModelPhase.INFERENCE,
+            timestamp=datetime.now(tz=timezone.utc),
+        )
+        try:
+            await self.reporter.publish_wakeup(event)
+        except Exception as exc:
+            logger.warning("agent_wakeup_failed", agent=self.agent_config.name, error=str(exc))
+
+    async def _send_sleep(self) -> None:
+        from sentinel.domain.models import SleepEvent
+        event = SleepEvent(
+            source_name=self.agent_config.name,
+            source_type="AGENT",
+            source_phase=ModelPhase.TRAINING,
+            timestamp=datetime.now(tz=timezone.utc),
+        )
+        try:
+            await self.reporter.publish_sleep(event)
+        except Exception as exc:
+            logger.warning("agent_sleep_failed", agent=self.agent_config.name, error=str(exc))
 
     async def set_test_rate(
         self, rate: float, detector_name: str | None = None
@@ -438,6 +474,7 @@ class AgentRunner:
 
     async def reset(self) -> None:
         """Reset all detector states to initial — clears models, buffers, counters."""
+        await self._send_sleep()
         for det_state in self.state.detectors.values():
             det_state.phase = ModelPhase.TRAINING
             det_state.model = None
@@ -485,37 +522,69 @@ class CortexRunner:
     dashboard_state: DashboardState | None = None
     layer_vectors: dict[str, LayerStateVector] = field(default_factory=dict)
     causal_window: deque = field(default_factory=lambda: deque(maxlen=100))
-    phase: ModelPhase = field(default=ModelPhase.TRAINING)
+    phase: ModelPhase = field(default=ModelPhase.SUSPENDED)
     autoencoder_model: SentinelAutoencoder | None = None
     training_buffer: list = field(default_factory=list)
     baseline_error: float = 0.01
     test_sample_rate: float = 0.0
     test_buffer: deque = field(default_factory=deque)
     last_test_result: dict = field(default_factory=dict)
+    _wakeup_set: set = field(default_factory=set, repr=False)
     _strategy: IAdaptationStrategy | None = field(default=None, repr=False)
     _adaptation_ctx: AdaptationContext | None = field(default=None, repr=False)
     _parent_reporters: list[GrpcReporter] = field(default_factory=list, repr=False)
     _model_store: DiskModelStore | None = field(default=None, repr=False)
     _last_training_sample_at: datetime | None = field(default=None, repr=False)
 
-    def _all_inputs_in_inference(self) -> bool:
-        for name in self.cortex_config.inputs:
-            lv = self.layer_vectors.get(name)
-            if lv is None or lv.model_phase != ModelPhase.INFERENCE:
-                return False
-        return True
+    async def _activate(self) -> None:
+        """Transition SUSPENDED → TRAINING (or INFERENCE if model already loaded)."""
+        if self.autoencoder_model is not None:
+            self.phase = ModelPhase.INFERENCE
+            self._activate_strategy()
+            logger.info("cortex_activated_inference", cortex=self.cortex_config.name)
+        else:
+            self.phase = ModelPhase.TRAINING
+            logger.info("cortex_activated_training", cortex=self.cortex_config.name)
+        if self.dashboard_state:
+            self.dashboard_state.update_cortex_phase(self.cortex_config.name, self.phase.value)
+
+    async def _suspend(self, reason: str) -> None:
+        """Transition to SUSPENDED and propagate sleep to parent cortex reporters."""
+        prev_phase = self.phase
+        self.phase = ModelPhase.SUSPENDED
+        logger.info(
+            "cortex_suspended",
+            cortex=self.cortex_config.name,
+            reason=reason,
+            prev_phase=prev_phase.value,
+        )
+        if self.dashboard_state:
+            self.dashboard_state.update_cortex_phase(self.cortex_config.name, self.phase.value)
+        sleep_event_domain = None
+        from sentinel.domain.models import SleepEvent as _SleepEvent
+        sleep_evt = _SleepEvent(
+            source_name=self.cortex_config.name,
+            source_type="CORTEX",
+            source_phase=self.phase,
+            timestamp=datetime.now(tz=timezone.utc),
+        )
+        for reporter in self._parent_reporters:
+            try:
+                await reporter.publish_sleep(sleep_evt)
+            except Exception as exc:
+                logger.warning("cortex_sleep_propagate_failed", cortex=self.cortex_config.name, error=str(exc))
 
     async def _accumulate_training_sample(self):
         from sentinel.cortex.use_cases.aggregate import build_layer_feature_matrix
+
+        if self.phase == ModelPhase.SUSPENDED:
+            return None
 
         if self.phase == ModelPhase.INFERENCE:
             matrix = build_layer_feature_matrix(self.layer_vectors)
             if matrix.shape[0] == 0:
                 return None
             return matrix.mean(axis=0)
-
-        if not self._all_inputs_in_inference():
-            return None
 
         now = datetime.now(tz=timezone.utc)
         interval = self.cortex_config.training_sample_interval_s
@@ -646,7 +715,8 @@ class CortexRunner:
         self.baseline_error = 0.01
         self.layer_vectors = {}
         self.causal_window = deque(maxlen=100)
-        self.phase = ModelPhase.TRAINING
+        self.phase = ModelPhase.SUSPENDED
+        self._wakeup_set.clear()
         self._strategy = None
         self._adaptation_ctx = None
         self._last_training_sample_at = None
@@ -734,6 +804,56 @@ class CortexRunner:
         )
         from sentinel.cortex.use_cases.causal_chain import add_temporal_signal
         from sentinel.domain.models import TemporalAnomalySignal, TemporalHeartbeatEvent
+
+        if isinstance(proto_event, sentinel_pb2.WakeupProto):
+            source = proto_event.source_name
+            if source not in self.cortex_config.inputs:
+                logger.warning(
+                    "cortex_unexpected_wakeup",
+                    cortex=self.cortex_config.name,
+                    source=source,
+                )
+                return
+            self._wakeup_set.add(source)
+            logger.info(
+                "cortex_wakeup_received",
+                cortex=self.cortex_config.name,
+                source=source,
+                wakeup_set=sorted(self._wakeup_set),
+                inputs=sorted(self.cortex_config.inputs),
+            )
+            if self._wakeup_set >= set(self.cortex_config.inputs):
+                await self._activate()
+            return
+
+        if isinstance(proto_event, sentinel_pb2.SleepProto):
+            source = proto_event.source_name
+            self._wakeup_set.discard(source)
+            logger.info(
+                "cortex_sleep_received",
+                cortex=self.cortex_config.name,
+                source=source,
+                source_phase=proto_event.source_phase,
+            )
+            await self._suspend(reason=f"sleep_from_{source}")
+            return
+
+        # Validate phase consistency
+        source_phase_str = getattr(proto_event, "source_phase", "") or ""
+        if source_phase_str == "TRAINING" and self.phase != ModelPhase.SUSPENDED:
+            source_name = getattr(proto_event, "agent_name", None) or getattr(proto_event, "layer_name", "unknown")
+            logger.error(
+                "cortex_state_violation",
+                cortex=self.cortex_config.name,
+                source=source_name,
+                source_phase=source_phase_str,
+                cortex_phase=self.phase.value,
+            )
+            await self._suspend(reason="state_violation")
+            return
+
+        if self.phase == ModelPhase.SUSPENDED:
+            return
 
         if isinstance(proto_event, sentinel_pb2.TemporalHeartbeatProto):
             event = TemporalHeartbeatEvent(
@@ -859,8 +979,7 @@ class CortexRunner:
                 )
                 self.autoencoder_model = model
                 self.baseline_error = meta.get("baseline_error", self.baseline_error)
-                self.phase = ModelPhase.INFERENCE
-                self._activate_strategy()
+                # Stay SUSPENDED until wakeup is received; _activate() will set INFERENCE
                 logger.info("cortex_model_loaded_from_disk", cortex=self.cortex_config.name)
             except Exception:
                 pass
@@ -895,6 +1014,12 @@ class _MultiReporter(IReporter):
     async def publish_heartbeat(self, heartbeat) -> None:
         await asyncio.gather(*(r.publish_heartbeat(heartbeat) for r in self._reporters))
 
+    async def publish_wakeup(self, event) -> None:
+        await asyncio.gather(*(r.publish_wakeup(event) for r in self._reporters))
+
+    async def publish_sleep(self, event) -> None:
+        await asyncio.gather(*(r.publish_sleep(event) for r in self._reporters))
+
 
 def _build_base_reporter(agent_config: AgentConfig) -> IReporter:
     from sentinel.adapters.grpc.client import GrpcReporter
@@ -920,9 +1045,9 @@ class TemporalLayerRunner:
     config: TemporalLayerConfig
     sentinel_config: SentinelConfig
     dashboard_state: DashboardState | None = None
-    phase: ModelPhase = field(default=ModelPhase.WARMUP)
+    phase: ModelPhase = field(default=ModelPhase.SUSPENDED)
     _accumulator: object = field(default=None, repr=False)
-    _agent_phases: dict[str, ModelPhase] = field(default_factory=dict, repr=False)
+    _wakeup_set: set = field(default_factory=set, repr=False)
     _bucket_store: object = field(default=None, repr=False)
     _reporters: list = field(default_factory=list, repr=False)
     _closing: bool = field(default=False, repr=False)
@@ -952,13 +1077,57 @@ class TemporalLayerRunner:
 
     async def handle_event(self, proto_event: object) -> None:
         from sentinel.adapters.grpc.generated import sentinel_pb2
-        from sentinel.domain.models import ModelPhase as _MP
         from sentinel.temporal.use_cases.window_accumulator import add_event, should_close
 
-        if isinstance(proto_event, sentinel_pb2.ProcessedEventProto):
-            agent_phase = self._agent_phases.get(
-                proto_event.agent_name, _MP.TRAINING
+        if isinstance(proto_event, sentinel_pb2.WakeupProto):
+            source = proto_event.source_name
+            if source not in self.config.inputs:
+                logger.warning(
+                    "temporal_unexpected_wakeup",
+                    layer=self.config.name,
+                    source=source,
+                )
+                return
+            self._wakeup_set.add(source)
+            logger.info(
+                "temporal_wakeup_received",
+                layer=self.config.name,
+                source=source,
+                wakeup_set=sorted(self._wakeup_set),
+                inputs=sorted(self.config.inputs),
             )
+            if self._wakeup_set >= set(self.config.inputs):
+                await self._activate()
+            return
+
+        if isinstance(proto_event, sentinel_pb2.SleepProto):
+            source = proto_event.source_name
+            self._wakeup_set.discard(source)
+            logger.info(
+                "temporal_sleep_received",
+                layer=self.config.name,
+                source=source,
+                source_phase=proto_event.source_phase,
+            )
+            await self._suspend(reason=f"sleep_from_{source}")
+            return
+
+        if isinstance(proto_event, sentinel_pb2.ProcessedEventProto):
+            # Validate: if source reports TRAINING but we are active, something is wrong
+            if proto_event.source_phase == "TRAINING" and self.phase != ModelPhase.SUSPENDED:
+                logger.error(
+                    "temporal_state_violation",
+                    layer=self.config.name,
+                    agent=proto_event.agent_name,
+                    source_phase=proto_event.source_phase,
+                    temporal_phase=self.phase.value,
+                )
+                await self._suspend(reason="state_violation")
+                return
+
+            if self.phase == ModelPhase.SUSPENDED:
+                return
+
             from sentinel.domain.models import ProcessedEvent, AnomalyType
             event = ProcessedEvent(
                 agent_name=proto_event.agent_name,
@@ -976,15 +1145,85 @@ class TemporalLayerRunner:
                 payload_schema_hash=proto_event.payload_schema_hash,
                 input_size_bytes=proto_event.input_size_bytes,
                 output_size_bytes=proto_event.output_size_bytes,
+                source_phase=ModelPhase(proto_event.source_phase) if proto_event.source_phase else None,
             )
-            self._accumulator = add_event(self._accumulator, event, agent_phase)
+            self._accumulator = add_event(self._accumulator, event)
             now = datetime.now(tz=timezone.utc)
             if should_close(self._accumulator, now) and not self._closing:
                 await self._close_and_process()
 
-        elif isinstance(proto_event, sentinel_pb2.HeartbeatProto):
-            if proto_event.model_phase:
-                self._agent_phases[proto_event.agent_name] = _MP(proto_event.model_phase)
+    async def _activate(self) -> None:
+        """Transition SUSPENDED → WARMUP (or INFERENCE if buckets already full)."""
+        from sentinel.temporal.use_cases.seasonal_normalizer import bucket_index_for
+        all_buckets = await self._bucket_store.get_all_buckets() if self._bucket_store else []
+        if all_buckets and all(
+            b.n_observations >= self.config.bucket.min_observations for b in all_buckets
+        ):
+            self.phase = ModelPhase.INFERENCE
+            logger.info("temporal_layer_activated_inference", layer=self.config.name)
+            await self._send_wakeup_to_cortex()
+        else:
+            self.phase = ModelPhase.WARMUP
+            logger.info("temporal_layer_activated_warmup", layer=self.config.name)
+        if self.dashboard_state is not None:
+            self.dashboard_state.update_temporal_layer({
+                "name": self.config.name,
+                "phase": self.phase.value,
+                "current_bucket": 0,
+                "bucket_observations": [b.n_observations for b in all_buckets],
+                "total_windows": 0,
+                "total_anomalies": 0,
+            })
+
+    async def _suspend(self, reason: str) -> None:
+        """Transition to SUSPENDED and propagate sleep to cortex reporters."""
+        from sentinel.adapters.grpc.client import GrpcReporter
+        from sentinel.domain.models import SleepEvent
+        prev_phase = self.phase
+        self.phase = ModelPhase.SUSPENDED
+        logger.info(
+            "temporal_layer_suspended",
+            layer=self.config.name,
+            reason=reason,
+            prev_phase=prev_phase.value,
+        )
+        if self.dashboard_state is not None:
+            self.dashboard_state.update_temporal_layer({
+                "name": self.config.name,
+                "phase": self.phase.value,
+                "current_bucket": 0,
+                "bucket_observations": [],
+                "total_windows": 0,
+                "total_anomalies": 0,
+            })
+        sleep_event = SleepEvent(
+            source_name=self.config.name,
+            source_type="TEMPORAL",
+            source_phase=self.phase,
+            timestamp=datetime.now(tz=timezone.utc),
+        )
+        for reporter in self._reporters:
+            if isinstance(reporter, GrpcReporter):
+                try:
+                    await reporter.publish_sleep(sleep_event)
+                except Exception as exc:
+                    logger.warning("temporal_sleep_propagate_failed", layer=self.config.name, error=str(exc))
+
+    async def _send_wakeup_to_cortex(self) -> None:
+        from sentinel.adapters.grpc.client import GrpcReporter
+        from sentinel.domain.models import WakeupEvent
+        wakeup = WakeupEvent(
+            source_name=self.config.name,
+            source_type="TEMPORAL",
+            source_phase=ModelPhase.INFERENCE,
+            timestamp=datetime.now(tz=timezone.utc),
+        )
+        for reporter in self._reporters:
+            if isinstance(reporter, GrpcReporter):
+                try:
+                    await reporter.publish_wakeup(wakeup)
+                except Exception as exc:
+                    logger.warning("temporal_wakeup_propagate_failed", layer=self.config.name, error=str(exc))
 
     async def _close_and_process(self) -> None:
         from sentinel.temporal.use_cases.anomaly_decider import decide
@@ -1032,6 +1271,7 @@ class TemporalLayerRunner:
                     "temporal_layer_inference",
                     layer=self.config.name,
                 )
+                await self._send_wakeup_to_cortex()
 
             await self._push_dashboard_update(
                 bucket_idx, refreshed, extra_anomaly=decision.is_anomalous
@@ -1085,6 +1325,8 @@ class TemporalLayerRunner:
         interval = self.config.heartbeat_interval_s
         while True:
             await asyncio.sleep(interval)
+            if self.phase == ModelPhase.SUSPENDED:
+                continue
             now = datetime.now(tz=timezone.utc)
             all_buckets = await self._bucket_store.get_all_buckets() if self._bucket_store else []
             confidence = self._bucket_store.bucket_confidence(all_buckets) if self._bucket_store else 0
@@ -1148,13 +1390,13 @@ class TemporalLayerRunner:
 
         if self._bucket_store is not None:
             await self._bucket_store.clear_all_buckets()
-        self.phase = ModelPhase.WARMUP
+        self.phase = ModelPhase.SUSPENDED
+        self._wakeup_set.clear()
         self._accumulator = WindowAccumulator(
             layer_name=self.config.name,
             duration_seconds=self.config.bucket.duration_seconds,
             window_start=datetime.now(tz=timezone.utc),
         )
-        self._agent_phases.clear()
         if self.dashboard_state is not None:
             empty_buckets = [0] * self.config.bucket.count
             self.dashboard_state.update_temporal_layer({
@@ -1184,17 +1426,7 @@ class TemporalLayerRunner:
             bucket_count=self.config.bucket.count,
         )
 
-        # Resume INFERENCE if all buckets are already warm from a previous run
         all_buckets = await self._bucket_store.get_all_buckets()
-        if all(
-            b.n_observations >= self.config.bucket.min_observations
-            for b in all_buckets
-        ):
-            self.phase = ModelPhase.INFERENCE
-            logger.info(
-                "temporal_layer_resumed_inference",
-                layer=self.config.name,
-            )
 
         if self.dashboard_state is not None:
             port_to_name = {cx.grpc_port: cx.name for cx in (self.sentinel_config.cortex or [])}

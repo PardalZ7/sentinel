@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0esentinel.proto\x12\x08sentinel\"\xac\x02\n\x13ProcessedEventProto\x12\x12\n\nagent_name\x18\x01 \x01(\t\x12\x16\n\x0e\x63orrelation_id\x18\x02 \x01(\t\x12\x1c\n\x14input_received_at_ms\x18\x03 \x01(\x03\x12\x19\n\x11output_sent_at_ms\x18\x04 \x01(\x03\x12\x1d\n\x15processing_latency_ms\x18\x05 \x01(\x02\x12\x15\n\ranomaly_score\x18\x06 \x01(\x02\x12\x12\n\nis_anomaly\x18\x07 \x01(\x08\x12\x14\n\x0c\x61nomaly_type\x18\x08 \x01(\t\x12\x1b\n\x13payload_schema_hash\x18\t \x01(\t\x12\x18\n\x10input_size_bytes\x18\n \x01(\x05\x12\x19\n\x11output_size_bytes\x18\x0b \x01(\x05\"\xb0\x01\n\x0eHeartbeatProto\x12\x12\n\nagent_name\x18\x01 \x01(\t\x12\x14\n\x0ctimestamp_ms\x18\x02 \x01(\x03\x12\x1c\n\x14message_rate_per_sec\x18\x03 \x01(\x02\x12\x1e\n\x16\x65rror_rate_last_window\x18\x04 \x01(\x02\x12!\n\x19last_message_timestamp_ms\x18\x05 \x01(\x03\x12\x13\n\x0bmodel_phase\x18\x06 \x01(\t\"\x9d\x02\n\x16TemporalHeartbeatProto\x12\x12\n\nlayer_name\x18\x01 \x01(\t\x12\x14\n\x0ctimestamp_ms\x18\x02 \x01(\x03\x12\x17\n\x0fwindow_start_ms\x18\x03 \x01(\x03\x12\x15\n\rwindow_end_ms\x18\x04 \x01(\x03\x12\x18\n\x10\x61gents_monitored\x18\x05 \x03(\t\x12\x1e\n\x16total_events_in_window\x18\x06 \x01(\x05\x12\x14\n\x0c\x61nomaly_rate\x18\x07 \x01(\x02\x12\x11\n\tavg_score\x18\x08 \x01(\x02\x12\x16\n\x0e\x61vg_latency_ms\x18\t \x01(\x02\x12\x19\n\x11\x62ucket_confidence\x18\n \x01(\x05\x12\x13\n\x0bmodel_phase\x18\x0b \x01(\t\"\xa4\x01\n\x19TemporalAnomalyFlagsProto\x12\x17\n\x0fis_rate_anomaly\x18\x01 \x01(\x08\x12\x19\n\x11is_volume_anomaly\x18\x02 \x01(\x08\x12\x18\n\x10is_score_anomaly\x18\x03 \x01(\x08\x12\x1a\n\x12is_latency_anomaly\x18\x04 \x01(\x08\x12\x1d\n\x15is_throughput_anomaly\x18\x05 \x01(\x08\"\x96\x03\n\x1aTemporalAnomalySignalProto\x12\x12\n\nlayer_name\x18\x01 \x01(\t\x12\x17\n\x0fwindow_start_ms\x18\x02 \x01(\x03\x12\x15\n\rwindow_end_ms\x18\x03 \x01(\x03\x12\x14\n\x0chour_of_week\x18\x04 \x01(\x05\x12\x14\n\x0c\x61nomaly_rate\x18\x05 \x01(\x02\x12\x16\n\x0e\x61nomaly_rate_z\x18\x06 \x01(\x02\x12\x0e\n\x06volume\x18\x07 \x01(\x05\x12\x10\n\x08volume_z\x18\x08 \x01(\x02\x12\x13\n\x0b\x61vg_score_z\x18\t \x01(\x02\x12\x15\n\ravg_latency_z\x18\n \x01(\x02\x12\x19\n\x11\x65vents_per_second\x18\x0e \x01(\x02\x12\x1b\n\x13\x65vents_per_second_z\x18\x0f \x01(\x02\x12\x32\n\x05\x66lags\x18\x0b \x01(\x0b\x32#.sentinel.TemporalAnomalyFlagsProto\x12\x1b\n\x13\x63ontributing_agents\x18\x0c \x03(\t\x12\x19\n\x11\x62ucket_confidence\x18\r \x01(\x05\"\x11\n\x03\x41\x63k\x12\n\n\x02ok\x18\x01 \x01(\x08\x32\xa9\x02\n\x0eSentinelCortex\x12;\n\x0bReportEvent\x12\x1d.sentinel.ProcessedEventProto\x1a\r.sentinel.Ack\x12:\n\x0fReportHeartbeat\x12\x18.sentinel.HeartbeatProto\x1a\r.sentinel.Ack\x12J\n\x17ReportTemporalHeartbeat\x12 .sentinel.TemporalHeartbeatProto\x1a\r.sentinel.Ack\x12R\n\x1bReportTemporalAnomalySignal\x12$.sentinel.TemporalAnomalySignalProto\x1a\r.sentinel.Ackb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0esentinel.proto\x12\x08sentinel\"\xc2\x02\n\x13ProcessedEventProto\x12\x12\n\nagent_name\x18\x01 \x01(\t\x12\x16\n\x0e\x63orrelation_id\x18\x02 \x01(\t\x12\x1c\n\x14input_received_at_ms\x18\x03 \x01(\x03\x12\x19\n\x11output_sent_at_ms\x18\x04 \x01(\x03\x12\x1d\n\x15processing_latency_ms\x18\x05 \x01(\x02\x12\x15\n\ranomaly_score\x18\x06 \x01(\x02\x12\x12\n\nis_anomaly\x18\x07 \x01(\x08\x12\x14\n\x0c\x61nomaly_type\x18\x08 \x01(\t\x12\x1b\n\x13payload_schema_hash\x18\t \x01(\t\x12\x18\n\x10input_size_bytes\x18\n \x01(\x05\x12\x19\n\x11output_size_bytes\x18\x0b \x01(\x05\x12\x14\n\x0csource_phase\x18\x0c \x01(\t\"\xb0\x01\n\x0eHeartbeatProto\x12\x12\n\nagent_name\x18\x01 \x01(\t\x12\x14\n\x0ctimestamp_ms\x18\x02 \x01(\x03\x12\x1c\n\x14message_rate_per_sec\x18\x03 \x01(\x02\x12\x1e\n\x16\x65rror_rate_last_window\x18\x04 \x01(\x02\x12!\n\x19last_message_timestamp_ms\x18\x05 \x01(\x03\x12\x13\n\x0bmodel_phase\x18\x06 \x01(\t\"\x9d\x02\n\x16TemporalHeartbeatProto\x12\x12\n\nlayer_name\x18\x01 \x01(\t\x12\x14\n\x0ctimestamp_ms\x18\x02 \x01(\x03\x12\x17\n\x0fwindow_start_ms\x18\x03 \x01(\x03\x12\x15\n\rwindow_end_ms\x18\x04 \x01(\x03\x12\x18\n\x10\x61gents_monitored\x18\x05 \x03(\t\x12\x1e\n\x16total_events_in_window\x18\x06 \x01(\x05\x12\x14\n\x0c\x61nomaly_rate\x18\x07 \x01(\x02\x12\x11\n\tavg_score\x18\x08 \x01(\x02\x12\x16\n\x0e\x61vg_latency_ms\x18\t \x01(\x02\x12\x19\n\x11\x62ucket_confidence\x18\n \x01(\x05\x12\x13\n\x0bmodel_phase\x18\x0b \x01(\t\"\xa4\x01\n\x19TemporalAnomalyFlagsProto\x12\x17\n\x0fis_rate_anomaly\x18\x01 \x01(\x08\x12\x19\n\x11is_volume_anomaly\x18\x02 \x01(\x08\x12\x18\n\x10is_score_anomaly\x18\x03 \x01(\x08\x12\x1a\n\x12is_latency_anomaly\x18\x04 \x01(\x08\x12\x1d\n\x15is_throughput_anomaly\x18\x05 \x01(\x08\"\x96\x03\n\x1aTemporalAnomalySignalProto\x12\x12\n\nlayer_name\x18\x01 \x01(\t\x12\x17\n\x0fwindow_start_ms\x18\x02 \x01(\x03\x12\x15\n\rwindow_end_ms\x18\x03 \x01(\x03\x12\x14\n\x0chour_of_week\x18\x04 \x01(\x05\x12\x14\n\x0c\x61nomaly_rate\x18\x05 \x01(\x02\x12\x16\n\x0e\x61nomaly_rate_z\x18\x06 \x01(\x02\x12\x0e\n\x06volume\x18\x07 \x01(\x05\x12\x10\n\x08volume_z\x18\x08 \x01(\x02\x12\x13\n\x0b\x61vg_score_z\x18\t \x01(\x02\x12\x15\n\ravg_latency_z\x18\n \x01(\x02\x12\x19\n\x11\x65vents_per_second\x18\x0e \x01(\x02\x12\x1b\n\x13\x65vents_per_second_z\x18\x0f \x01(\x02\x12\x32\n\x05\x66lags\x18\x0b \x01(\x0b\x32#.sentinel.TemporalAnomalyFlagsProto\x12\x1b\n\x13\x63ontributing_agents\x18\x0c \x03(\t\x12\x19\n\x11\x62ucket_confidence\x18\r \x01(\x05\"c\n\x0bWakeupProto\x12\x13\n\x0bsource_name\x18\x01 \x01(\t\x12\x13\n\x0bsource_type\x18\x02 \x01(\t\x12\x14\n\x0csource_phase\x18\x03 \x01(\t\x12\x14\n\x0ctimestamp_ms\x18\x04 \x01(\x03\"b\n\nSleepProto\x12\x13\n\x0bsource_name\x18\x01 \x01(\t\x12\x13\n\x0bsource_type\x18\x02 \x01(\t\x12\x14\n\x0csource_phase\x18\x03 \x01(\t\x12\x14\n\x0ctimestamp_ms\x18\x04 \x01(\x03\"\x11\n\x03\x41\x63k\x12\n\n\x02ok\x18\x01 \x01(\x08\x32\x93\x03\n\x0eSentinelCortex\x12;\n\x0bReportEvent\x12\x1d.sentinel.ProcessedEventProto\x1a\r.sentinel.Ack\x12:\n\x0fReportHeartbeat\x12\x18.sentinel.HeartbeatProto\x1a\r.sentinel.Ack\x12\x34\n\x0cReportWakeup\x12\x15.sentinel.WakeupProto\x1a\r.sentinel.Ack\x12\x32\n\x0bReportSleep\x12\x14.sentinel.SleepProto\x1a\r.sentinel.Ack\x12J\n\x17ReportTemporalHeartbeat\x12 .sentinel.TemporalHeartbeatProto\x1a\r.sentinel.Ack\x12R\n\x1bReportTemporalAnomalySignal\x12$.sentinel.TemporalAnomalySignalProto\x1a\r.sentinel.Ackb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,17 +32,21 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'sentinel_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_PROCESSEDEVENTPROTO']._serialized_start=29
-  _globals['_PROCESSEDEVENTPROTO']._serialized_end=329
-  _globals['_HEARTBEATPROTO']._serialized_start=332
-  _globals['_HEARTBEATPROTO']._serialized_end=508
-  _globals['_TEMPORALHEARTBEATPROTO']._serialized_start=511
-  _globals['_TEMPORALHEARTBEATPROTO']._serialized_end=796
-  _globals['_TEMPORALANOMALYFLAGSPROTO']._serialized_start=799
-  _globals['_TEMPORALANOMALYFLAGSPROTO']._serialized_end=963
-  _globals['_TEMPORALANOMALYSIGNALPROTO']._serialized_start=966
-  _globals['_TEMPORALANOMALYSIGNALPROTO']._serialized_end=1372
-  _globals['_ACK']._serialized_start=1374
-  _globals['_ACK']._serialized_end=1391
-  _globals['_SENTINELCORTEX']._serialized_start=1394
-  _globals['_SENTINELCORTEX']._serialized_end=1691
+  _globals['_PROCESSEDEVENTPROTO']._serialized_end=351
+  _globals['_HEARTBEATPROTO']._serialized_start=354
+  _globals['_HEARTBEATPROTO']._serialized_end=530
+  _globals['_TEMPORALHEARTBEATPROTO']._serialized_start=533
+  _globals['_TEMPORALHEARTBEATPROTO']._serialized_end=818
+  _globals['_TEMPORALANOMALYFLAGSPROTO']._serialized_start=821
+  _globals['_TEMPORALANOMALYFLAGSPROTO']._serialized_end=985
+  _globals['_TEMPORALANOMALYSIGNALPROTO']._serialized_start=988
+  _globals['_TEMPORALANOMALYSIGNALPROTO']._serialized_end=1394
+  _globals['_WAKEUPPROTO']._serialized_start=1396
+  _globals['_WAKEUPPROTO']._serialized_end=1495
+  _globals['_SLEEPPROTO']._serialized_start=1497
+  _globals['_SLEEPPROTO']._serialized_end=1595
+  _globals['_ACK']._serialized_start=1597
+  _globals['_ACK']._serialized_end=1614
+  _globals['_SENTINELCORTEX']._serialized_start=1617
+  _globals['_SENTINELCORTEX']._serialized_end=2020
 # @@protoc_insertion_point(module_scope)

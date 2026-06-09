@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from sentinel.adapters.grpc.generated import sentinel_pb2 as sentinel__pb2
+import sentinel_pb2 as sentinel__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -44,6 +44,16 @@ class SentinelCortexStub(object):
                 request_serializer=sentinel__pb2.HeartbeatProto.SerializeToString,
                 response_deserializer=sentinel__pb2.Ack.FromString,
                 _registered_method=True)
+        self.ReportWakeup = channel.unary_unary(
+                '/sentinel.SentinelCortex/ReportWakeup',
+                request_serializer=sentinel__pb2.WakeupProto.SerializeToString,
+                response_deserializer=sentinel__pb2.Ack.FromString,
+                _registered_method=True)
+        self.ReportSleep = channel.unary_unary(
+                '/sentinel.SentinelCortex/ReportSleep',
+                request_serializer=sentinel__pb2.SleepProto.SerializeToString,
+                response_deserializer=sentinel__pb2.Ack.FromString,
+                _registered_method=True)
         self.ReportTemporalHeartbeat = channel.unary_unary(
                 '/sentinel.SentinelCortex/ReportTemporalHeartbeat',
                 request_serializer=sentinel__pb2.TemporalHeartbeatProto.SerializeToString,
@@ -60,13 +70,25 @@ class SentinelCortexServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def ReportEvent(self, request, context):
-        """Agent → TemporalLayer
+        """Agent → TemporalLayer / Cortex
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ReportHeartbeat(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReportWakeup(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReportSleep(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -96,6 +118,16 @@ def add_SentinelCortexServicer_to_server(servicer, server):
             'ReportHeartbeat': grpc.unary_unary_rpc_method_handler(
                     servicer.ReportHeartbeat,
                     request_deserializer=sentinel__pb2.HeartbeatProto.FromString,
+                    response_serializer=sentinel__pb2.Ack.SerializeToString,
+            ),
+            'ReportWakeup': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReportWakeup,
+                    request_deserializer=sentinel__pb2.WakeupProto.FromString,
+                    response_serializer=sentinel__pb2.Ack.SerializeToString,
+            ),
+            'ReportSleep': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReportSleep,
+                    request_deserializer=sentinel__pb2.SleepProto.FromString,
                     response_serializer=sentinel__pb2.Ack.SerializeToString,
             ),
             'ReportTemporalHeartbeat': grpc.unary_unary_rpc_method_handler(
@@ -162,6 +194,60 @@ class SentinelCortex(object):
             target,
             '/sentinel.SentinelCortex/ReportHeartbeat',
             sentinel__pb2.HeartbeatProto.SerializeToString,
+            sentinel__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReportWakeup(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sentinel.SentinelCortex/ReportWakeup',
+            sentinel__pb2.WakeupProto.SerializeToString,
+            sentinel__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReportSleep(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sentinel.SentinelCortex/ReportSleep',
+            sentinel__pb2.SleepProto.SerializeToString,
             sentinel__pb2.Ack.FromString,
             options,
             channel_credentials,

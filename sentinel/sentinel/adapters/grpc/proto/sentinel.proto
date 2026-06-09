@@ -3,9 +3,11 @@ syntax = "proto3";
 package sentinel;
 
 service SentinelCortex {
-  // Agent → TemporalLayer
+  // Agent → TemporalLayer / Cortex
   rpc ReportEvent(ProcessedEventProto) returns (Ack);
   rpc ReportHeartbeat(HeartbeatProto) returns (Ack);
+  rpc ReportWakeup(WakeupProto) returns (Ack);
+  rpc ReportSleep(SleepProto) returns (Ack);
 
   // TemporalLayer → Cortex
   rpc ReportTemporalHeartbeat(TemporalHeartbeatProto) returns (Ack);
@@ -24,6 +26,7 @@ message ProcessedEventProto {
   string payload_schema_hash = 9;
   int32 input_size_bytes = 10;
   int32 output_size_bytes = 11;
+  string source_phase = 12;
 }
 
 message HeartbeatProto {
@@ -76,6 +79,20 @@ message TemporalAnomalySignalProto {
 
   repeated string contributing_agents = 12;
   int32  bucket_confidence            = 13;
+}
+
+message WakeupProto {
+  string source_name  = 1;
+  string source_type  = 2;
+  string source_phase = 3;
+  int64  timestamp_ms = 4;
+}
+
+message SleepProto {
+  string source_name  = 1;
+  string source_type  = 2;
+  string source_phase = 3;
+  int64  timestamp_ms = 4;
 }
 
 message Ack {

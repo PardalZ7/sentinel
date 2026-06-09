@@ -14,7 +14,7 @@
 
 from abc import ABC, abstractmethod
 
-from sentinel.domain.models import HeartbeatEvent, ProcessedEvent
+from sentinel.domain.models import HeartbeatEvent, ProcessedEvent, SleepEvent, WakeupEvent
 
 
 class IReporter(ABC):
@@ -23,3 +23,9 @@ class IReporter(ABC):
 
     @abstractmethod
     async def publish_heartbeat(self, heartbeat: HeartbeatEvent) -> None: ...
+
+    async def publish_wakeup(self, event: WakeupEvent) -> None:
+        """Default no-op — override in transport implementations."""
+
+    async def publish_sleep(self, event: SleepEvent) -> None:
+        """Default no-op — override in transport implementations."""
