@@ -19,7 +19,7 @@ if dashboard state is None (dashboard disabled) the overhead is a single
 None-check per event — imperceptible to the agent processing loop.
 """
 
-from sentinel.domain.models import HeartbeatEvent, ProcessedEvent
+from sentinel.domain.models import HeartbeatEvent, ProcessedEvent, SleepEvent, WakeupEvent
 from sentinel.domain.ports.reporter import IReporter
 from sentinel.logging.logger import get_logger
 
@@ -50,3 +50,9 @@ class DashboardReporter(IReporter):
             pass
 
         await self._inner.publish_heartbeat(heartbeat)
+
+    async def publish_wakeup(self, event: WakeupEvent) -> None:
+        await self._inner.publish_wakeup(event)
+
+    async def publish_sleep(self, event: SleepEvent) -> None:
+        await self._inner.publish_sleep(event)
