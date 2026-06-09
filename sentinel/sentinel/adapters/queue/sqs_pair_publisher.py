@@ -45,7 +45,12 @@ def _to_proto(pair: CorrelatedPair) -> CorrelatedPairProto:
 
 
 class SqsPairPublisher(IPairPublisher):
-    """Serializes a CorrelatedPair to protobuf and sends it to an SQS queue."""
+    """Serializes a CorrelatedPair to protobuf and sends it to an SQS queue.
+
+    Client pooling: a single SQS client is created on first use and reused
+    across calls to avoid per-publish TCP handshake overhead.  Call close() to
+    release it.
+    """
 
     def __init__(
         self,
@@ -57,6 +62,7 @@ class SqsPairPublisher(IPairPublisher):
         self._region = region
         self._endpoint_url = endpoint_url
         self._session = None
+        self._sqs_client = None
 
     def _get_session(self):
         if self._session is None:
@@ -70,31 +76,43 @@ class SqsPairPublisher(IPairPublisher):
                 ) from exc
         return self._session
 
+    async def _get_sqs_client(self):
+        if self._sqs_client is None:
+            session = self._get_session()
+            self._sqs_client = await session.create_client(
+                "sqs",
+                region_name=self._region,
+                endpoint_url=self._endpoint_url,
+            ).__aenter__()
+        return self._sqs_client
+
+    async def close(self) -> None:
+        if self._sqs_client is not None:
+            try:
+                await self._sqs_client.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._sqs_client = None
+
     async def publish(self, pair: CorrelatedPair) -> None:
         proto = _to_proto(pair)
         payload = proto.SerializeToString()
 
-        session = self._get_session()
-        async with session.create_client(
-            "sqs",
-            region_name=self._region,
-            endpoint_url=self._endpoint_url,
-        ) as client:
-            import json as _json
-            await client.send_message(
-                QueueUrl=self._queue_url,
-                MessageBody=_json.dumps({"_proto": payload.hex()}),
-                MessageAttributes={
-                    "ContentType": {
-                        "DataType": "String",
-                        "StringValue": "application/x-protobuf",
-                    },
-                    "EngineName": {
-                        "DataType": "String",
-                        "StringValue": pair.engine_name,
-                    },
+        client = await self._get_sqs_client()
+        await client.send_message(
+            QueueUrl=self._queue_url,
+            MessageBody=json.dumps({"_proto": payload.hex()}),
+            MessageAttributes={
+                "ContentType": {
+                    "DataType": "String",
+                    "StringValue": "application/x-protobuf",
                 },
-            )
+                "EngineName": {
+                    "DataType": "String",
+                    "StringValue": pair.engine_name,
+                },
+            },
+        )
         logger.debug(
             "pair_published",
             engine=pair.engine_name,

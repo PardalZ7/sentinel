@@ -68,7 +68,15 @@ class CorrelationEngineRunner:
                 self._process_message(inp_cfg, transport, message, mode)
                 for message in batch
             ])
-            await transport.flush_acks()
+            try:
+                await transport.flush_acks()
+            except Exception as exc:
+                logger.error(
+                    "engine_flush_acks_failed",
+                    engine=self.engine_config.name,
+                    input=inp_cfg.name,
+                    error=str(exc),
+                )
 
     async def _process_message(
         self, inp_cfg: InputConfig, transport: ITransport, message, mode: str
