@@ -14,8 +14,33 @@
 
 import logging
 import os
+from typing import Any
 
 import structlog
+
+# Events suppressed in normal mode — only visible when SENTINEL_VERBOSE=detailed
+_VERBOSE_ONLY_EVENTS: frozenset[str] = frozenset(
+    [
+        "grpc_report_event",
+        "grpc_report_heartbeat",
+        "grpc_report_temporal_heartbeat",
+        "denial_rule_hit",
+        "denial_rule_field_missing",
+        "denial_rule_eval_error",
+        "sqs_messages_received",
+        "agent_pairs_batch_received",
+    ]
+)
+
+_VERBOSE_MODE = os.getenv("SENTINEL_VERBOSE", "").strip().lower() == "detailed"
+
+
+def _verbose_filter(
+    logger: Any, method: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    if not _VERBOSE_MODE and event_dict.get("event") in _VERBOSE_ONLY_EVENTS:
+        raise structlog.DropEvent()
+    return event_dict
 
 
 def configure_logging() -> None:
@@ -25,6 +50,7 @@ def configure_logging() -> None:
     processors = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
+        _verbose_filter,
         structlog.processors.TimeStamper(fmt="iso"),
     ]
 
