@@ -1004,8 +1004,9 @@ class TemporalLayerRunner:
 
             snapshot, self._accumulator = close_window(self._accumulator, bucket_idx)
 
-            # Skip bucket update for empty windows
+            # Skip bucket update for empty windows, but still update dashboard
             if snapshot.total_events == 0:
+                await self._push_dashboard_update(bucket_idx, await self._bucket_store.get_all_buckets())
                 return
 
             bucket = await self._bucket_store.get_bucket(bucket_idx)
@@ -1129,7 +1130,10 @@ class TemporalLayerRunner:
         while True:
             await asyncio.sleep(1)
             if not self._closing and should_close(self._accumulator, datetime.now(tz=timezone.utc)):
-                await self._close_and_process()
+                try:
+                    await self._close_and_process()
+                except Exception as exc:
+                    logger.error("window_clock_loop_error", layer=self.config.name, error=str(exc))
 
     async def run(self) -> None:
         from sentinel.adapters.grpc.server import create_server, start_server
