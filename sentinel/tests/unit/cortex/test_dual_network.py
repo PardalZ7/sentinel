@@ -25,10 +25,13 @@ def _make_signal(layer_name: str, offset_s: float = 0.0) -> TemporalAnomalySigna
         volume_z=1.0,
         avg_score_z=2.1,
         avg_latency_z=0.5,
+        events_per_second=0.0,
+        events_per_second_z=0.0,
         is_rate_anomaly=True,
         is_volume_anomaly=False,
         is_score_anomaly=True,
         is_latency_anomaly=False,
+        is_throughput_anomaly=False,
         contributing_agents=["agent01"],
         bucket_confidence=5,
     )
