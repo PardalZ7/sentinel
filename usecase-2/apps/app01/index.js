@@ -224,8 +224,15 @@ const DEFAULT_TEMPLATES = [
   },
 ];
 
+const DEFAULT_PERIODS = [
+  { durationMs: 2 * 60 * 1000, intervalMs: 200 },
+  { durationMs: 2 * 60 * 1000, intervalMs: 25 },
+  { durationMs: 2 * 60 * 1000, intervalMs: 75 },
+  { durationMs: 2 * 60 * 1000, intervalMs: 1000 },
+];
+
 let config = {
-  intervalMs: 1000,
+  periods: DEFAULT_PERIODS,
   templates: DEFAULT_TEMPLATES,
   errorRateOmit: 0,
   errorRateCorrupt: 0,
@@ -234,6 +241,9 @@ let config = {
 
 let running = false;
 let timer = null;
+let periodTimer = null;
+let currentPeriodIndex = 0;
+let periodStartedAt = null;
 let publishedCount = 0;
 
 const MAX_LOG = 30;
@@ -283,10 +293,35 @@ async function produce() {
   }
 }
 
+function startPeriod(index) {
+  if (timer) { clearInterval(timer); timer = null; }
+  if (periodTimer) { clearTimeout(periodTimer); periodTimer = null; }
+
+  if (index >= config.periods.length) {
+    running = false;
+    currentPeriodIndex = 0;
+    periodStartedAt = null;
+    console.log('[APP01] All periods completed.');
+    return;
+  }
+
+  currentPeriodIndex = index;
+  periodStartedAt = Date.now();
+  const period = config.periods[index];
+  console.log(`[APP01] Period ${index + 1}/${config.periods.length}: interval=${period.intervalMs}ms, duration=${period.durationMs}ms`);
+
+  timer = setInterval(produce, period.intervalMs);
+  periodTimer = setTimeout(() => startPeriod(index + 1), period.durationMs);
+}
+
 function restartTimer() {
-  if (timer) clearInterval(timer);
+  if (timer) { clearInterval(timer); timer = null; }
+  if (periodTimer) { clearTimeout(periodTimer); periodTimer = null; }
+  currentPeriodIndex = 0;
+  periodStartedAt = null;
+
   if (running) {
-    timer = setInterval(produce, config.intervalMs);
+    startPeriod(0);
   } else {
     publishedCount = 0;
   }
@@ -294,19 +329,26 @@ function restartTimer() {
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
-app.get('/config', (req, res) => res.json({ ...config, running, publishedCount }));
+app.get('/config', (req, res) => res.json({
+  ...config,
+  running,
+  publishedCount,
+  currentPeriodIndex,
+  periodElapsedMs: periodStartedAt ? Date.now() - periodStartedAt : 0,
+}));
 
 app.post('/config', (req, res) => {
-  const { intervalMs, templates, errorRateOmit, errorRateCorrupt, errorRateInject } = req.body;
-  let timerChanged = false;
+  const { periods, templates, errorRateOmit, errorRateCorrupt, errorRateInject } = req.body;
 
-  if (intervalMs !== undefined) { config.intervalMs = Math.max(25, intervalMs); timerChanged = true; }
+  if (periods !== undefined) {
+    config.periods = periods;
+    if (running) restartTimer();
+  }
   if (templates !== undefined)  { config.templates = templates; }
   if (errorRateOmit !== undefined)   config.errorRateOmit = errorRateOmit;
   if (errorRateCorrupt !== undefined) config.errorRateCorrupt = errorRateCorrupt;
   if (errorRateInject !== undefined)  config.errorRateInject = errorRateInject;
 
-  if (timerChanged) restartTimer();
   res.json(config);
 });
 

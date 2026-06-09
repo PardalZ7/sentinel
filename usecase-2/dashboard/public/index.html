@@ -230,17 +230,16 @@
         </div>
         <div class="panel-body">
 
-          <div class="config-group">
-            <div class="config-label">
-              <span>Publish Interval</span>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="intervalMs-input" min="25" max="10000" step="25" value="1000"
-                  style="width:72px;background:#0d1117;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:3px 7px;font-family:monospace;font-size:13px;font-weight:600;text-align:right;outline:none;" />
-                <span style="color:#8b949e;font-size:12px;">ms</span>
-              </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-size:13px;font-weight:600;color:#e6edf3;">Flow Periods</span>
+            <div style="display:flex;gap:6px;">
+              <button class="btn-add" style="font-size:11px;padding:3px 10px;" onclick="addPeriod()">+ Add</button>
+              <button class="btn-apply" style="font-size:11px;padding:3px 10px;" onclick="applyPeriods()">✓ Apply</button>
             </div>
-            <input type="range" id="intervalMs-slider" min="25" max="10000" step="25" value="1000" />
           </div>
+
+          <div id="periods-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+          <div class="config-status" id="periods-status"></div>
 
           <hr class="divider" />
 
@@ -312,6 +311,93 @@
   </div>
 
   <script>
+    // ── Period state ──────────────────────────────────────────────────────────
+
+    const DEFAULT_PERIODS = [
+      { durationMs: 2 * 60 * 1000, intervalMs: 200 },
+      { durationMs: 2 * 60 * 1000, intervalMs: 25 },
+      { durationMs: 2 * 60 * 1000, intervalMs: 75 },
+      { durationMs: 2 * 60 * 1000, intervalMs: 1000 },
+    ];
+
+    let periods = DEFAULT_PERIODS.map((p, i) => ({ ...p, id: 'p' + i }));
+
+    function renderPeriods(activePeriodIndex = -1, periodElapsedMs = 0) {
+      const list = document.getElementById('periods-list');
+      list.innerHTML = '';
+      periods.forEach((p, i) => {
+        const isActive = activePeriodIndex === i;
+        const progressPct = isActive ? Math.min(100, periodElapsedMs / p.durationMs * 100) : 0;
+
+        const row = document.createElement('div');
+        row.style.cssText = `
+          background:${isActive ? '#0d2a1a' : '#0d1117'};
+          border:1px solid ${isActive ? '#238636' : '#21262d'};
+          border-radius:5px; padding:8px 10px;
+          display:flex; flex-direction:column; gap:5px;
+          transition: background 0.3s, border-color 0.3s;
+        `;
+
+        row.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;font-weight:700;color:${isActive ? '#3fb950' : '#6e7681'};min-width:20px;">P${i + 1}</span>
+            <div style="display:flex;align-items:center;gap:5px;flex:1;">
+              <span style="font-size:11px;color:#8b949e;">Duration</span>
+              <input data-field="duration" type="number" min="1" step="1" value="${p.durationMs / 1000}"
+                style="width:56px;background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:2px 6px;font-family:monospace;font-size:12px;text-align:right;outline:none;" />
+              <span style="font-size:11px;color:#8b949e;">s</span>
+              <span style="font-size:11px;color:#8b949e;margin-left:6px;">Interval</span>
+              <input data-field="interval" type="number" min="10" step="5" value="${p.intervalMs}"
+                style="width:60px;background:#161b22;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:2px 6px;font-family:monospace;font-size:12px;font-weight:600;text-align:right;outline:none;" />
+              <span style="font-size:11px;color:#8b949e;">ms</span>
+            </div>
+            <button class="btn-remove" style="flex-shrink:0;" title="Remove period">✕</button>
+          </div>
+          ${isActive ? `<div style="height:3px;background:#21262d;border-radius:2px;overflow:hidden;">
+            <div style="height:100%;width:${progressPct.toFixed(1)}%;background:#3fb950;transition:width 0.5s;"></div>
+          </div>` : ''}
+        `;
+
+        const durationInput = row.querySelector('[data-field="duration"]');
+        const intervalInput = row.querySelector('[data-field="interval"]');
+        const removeBtn = row.querySelector('.btn-remove');
+
+        durationInput.addEventListener('change', () => {
+          p.durationMs = Math.max(1, parseInt(durationInput.value) || 1) * 1000;
+        });
+        intervalInput.addEventListener('change', () => {
+          p.intervalMs = Math.max(10, parseInt(intervalInput.value) || 100);
+        });
+        removeBtn.addEventListener('click', () => {
+          if (periods.length <= 1) return;
+          periods = periods.filter(x => x.id !== p.id);
+          renderPeriods();
+        });
+
+        list.appendChild(row);
+      });
+    }
+
+    function addPeriod() {
+      periods.push({ id: 'p' + Date.now(), durationMs: 60 * 1000, intervalMs: 500 });
+      renderPeriods();
+    }
+
+    async function applyPeriods() {
+      const payload = periods.map(p => ({ durationMs: p.durationMs, intervalMs: p.intervalMs }));
+      try {
+        const res = await fetch('/app/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ periods: payload }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showStatus('periods-status', 'Periods applied', 'ok');
+      } catch (e) {
+        showStatus('periods-status', 'Error: ' + e.message, 'err');
+      }
+    }
+
     // ── Template state ────────────────────────────────────────────────────────
 
     let templates = [
@@ -565,19 +651,7 @@
       }
     }
 
-    (() => {
-      const slider = document.getElementById('intervalMs-slider');
-      const numInput = document.getElementById('intervalMs-input');
-      slider.addEventListener('input', () => { numInput.value = slider.value; });
-      slider.addEventListener('change', () => { numInput.value = slider.value; sendConfig({ intervalMs: parseInt(slider.value) }); });
-      numInput.addEventListener('change', () => {
-        const v = Math.max(25, parseInt(numInput.value) || 25);
-        numInput.value = v; slider.value = Math.min(v, 10000);
-        sendConfig({ intervalMs: v });
-      });
-    })();
-
-    ['errorRateOmit', 'errorRateCorrupt', 'errorRateInject'].forEach(field => {
+['errorRateOmit', 'errorRateCorrupt', 'errorRateInject'].forEach(field => {
       const slider = document.getElementById(`${field}-slider`);
       const display = document.getElementById(`${field}-val`);
       slider.addEventListener('input', () => { display.textContent = parseFloat(slider.value).toFixed(2); });
@@ -592,10 +666,11 @@
         if (!res.ok) return;
         const cfg = await res.json();
 
-        if (cfg.intervalMs !== undefined) {
-          document.getElementById('intervalMs-slider').value = Math.min(cfg.intervalMs, 10000);
-          document.getElementById('intervalMs-input').value = cfg.intervalMs;
+        if (Array.isArray(cfg.periods) && cfg.periods.length) {
+          periods = cfg.periods.map((p, i) => ({ ...p, id: 'p' + i }));
         }
+        renderPeriods(cfg.running ? cfg.currentPeriodIndex : -1, cfg.periodElapsedMs || 0);
+
         ['errorRateOmit', 'errorRateCorrupt', 'errorRateInject'].forEach(f => {
           if (cfg[f] !== undefined) {
             document.getElementById(`${f}-slider`).value = cfg[f];
@@ -679,6 +754,7 @@
         if (cfg.publishedCount !== undefined)
           document.getElementById('published-count').textContent = cfg.publishedCount;
         setRunning(!!cfg.running);
+        renderPeriods(cfg.running ? cfg.currentPeriodIndex : -1, cfg.periodElapsedMs || 0);
       } catch {}
     }
 
@@ -715,6 +791,7 @@
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
+    renderPeriods();
     renderTemplates();
     loadConfig();
     setInterval(refreshLog, 2000);
