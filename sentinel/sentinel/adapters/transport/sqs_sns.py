@@ -35,6 +35,9 @@ class SqsSnsTransport(ITransport):
     to ceil(N/10).  The batch is flushed automatically when it reaches the limit
     or explicitly via flush_acks().  Messages not yet flushed will be redelivered
     if the process crashes — SQS at-least-once delivery semantics are preserved.
+
+    Client pooling: SQS and SNS clients are created once and reused across calls
+    to avoid per-call TCP handshake overhead.  Call close() to release them.
     """
 
     def __init__(
@@ -51,6 +54,8 @@ class SqsSnsTransport(ITransport):
         self._region = region
         self._wait_time_seconds = wait_time_seconds
         self._session = None
+        self._sqs_client = None
+        self._sns_client = None
         self._receipt_handles: dict[str, str] = {}
         self._pending_acks: list[str] = []  # pending receipt handles for batch delete
 
@@ -66,6 +71,41 @@ class SqsSnsTransport(ITransport):
                     "Install it with: pip install aiobotocore"
                 ) from e
         return self._session
+
+    async def _get_sqs_client(self):
+        if self._sqs_client is None:
+            session = self._get_session()
+            self._sqs_client = await session.create_client(
+                "sqs",
+                region_name=self._region,
+                endpoint_url=self._endpoint_url,
+            ).__aenter__()
+        return self._sqs_client
+
+    async def _get_sns_client(self):
+        if self._sns_client is None:
+            session = self._get_session()
+            self._sns_client = await session.create_client(
+                "sns",
+                region_name=self._region,
+                endpoint_url=self._endpoint_url,
+            ).__aenter__()
+        return self._sns_client
+
+    async def close(self) -> None:
+        """Release persistent SQS/SNS clients."""
+        if self._sqs_client is not None:
+            try:
+                await self._sqs_client.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._sqs_client = None
+        if self._sns_client is not None:
+            try:
+                await self._sns_client.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._sns_client = None
 
     def _parse_sqs_message(self, msg: dict) -> RawMessage:
         """Parse a raw SQS message dict into a RawMessage, unwrapping SNS envelopes."""
@@ -98,23 +138,18 @@ class SqsSnsTransport(ITransport):
 
     async def receive_batch(self) -> list[RawMessage]:
         """Poll SQS once and return up to 10 RawMessages. Returns empty list when queue is empty."""
-        session = self._get_session()
         try:
-            async with session.create_client(
-                "sqs",
-                region_name=self._region,
-                endpoint_url=self._endpoint_url,
-            ) as client:
-                response = await client.receive_message(
-                    QueueUrl=self._input_queue_url,
-                    MaxNumberOfMessages=10,
-                    WaitTimeSeconds=self._wait_time_seconds,
-                    AttributeNames=["SentTimestamp"],
-                )
-                messages = response.get("Messages", [])
-                if messages:
-                    logger.info("sqs_messages_received", queue=self._input_queue_url, count=len(messages))
-                return [self._parse_sqs_message(msg) for msg in messages]
+            client = await self._get_sqs_client()
+            response = await client.receive_message(
+                QueueUrl=self._input_queue_url,
+                MaxNumberOfMessages=10,
+                WaitTimeSeconds=self._wait_time_seconds,
+                AttributeNames=["SentTimestamp"],
+            )
+            messages = response.get("Messages", [])
+            if messages:
+                logger.info("sqs_messages_received", queue=self._input_queue_url, count=len(messages))
+            return [self._parse_sqs_message(msg) for msg in messages]
         except Exception as exc:
             raise TransportError(f"SQS receive failed: {exc}") from exc
 
@@ -150,20 +185,15 @@ class SqsSnsTransport(ITransport):
             self._pending_acks[_SQS_BATCH_DELETE_MAX:],
         )
 
-        session = self._get_session()
         try:
-            async with session.create_client(
-                "sqs",
-                region_name=self._region,
-                endpoint_url=self._endpoint_url,
-            ) as client:
-                await client.delete_message_batch(
-                    QueueUrl=self._input_queue_url,
-                    Entries=[
-                        {"Id": str(i), "ReceiptHandle": h}
-                        for i, h in enumerate(batch)
-                    ],
-                )
+            client = await self._get_sqs_client()
+            await client.delete_message_batch(
+                QueueUrl=self._input_queue_url,
+                Entries=[
+                    {"Id": str(i), "ReceiptHandle": h}
+                    for i, h in enumerate(batch)
+                ],
+            )
         except Exception as exc:
             raise TransportError(f"SQS batch ack failed: {exc}") from exc
 
@@ -174,16 +204,11 @@ class SqsSnsTransport(ITransport):
 
     async def publish(self, topic: str, payload: dict) -> None:
         """Publish a message to an SNS topic."""
-        session = self._get_session()
         try:
-            async with session.create_client(
-                "sns",
-                region_name=self._region,
-                endpoint_url=self._endpoint_url,
-            ) as client:
-                await client.publish(
-                    TopicArn=topic,
-                    Message=json.dumps(payload),
-                )
+            client = await self._get_sns_client()
+            await client.publish(
+                TopicArn=topic,
+                Message=json.dumps(payload),
+            )
         except Exception as exc:
             raise TransportError(f"SNS publish failed: {exc}") from exc

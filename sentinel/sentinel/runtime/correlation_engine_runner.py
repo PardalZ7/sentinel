@@ -60,35 +60,47 @@ class CorrelationEngineRunner:
 
     async def _run_input_loop(self, inp_cfg: InputConfig, transport: ITransport) -> None:
         mode = self.engine_config.effective_input_mode(inp_cfg)
-        async for message in transport.receive():
-            try:
-                if mode == "grouping":
-                    results = await correlate.store_input_captures_batch(
-                        store=self.correlation_store,
-                        config=self.engine_config,
-                        input_cfg=inp_cfg,
-                        message=message,
-                    )
-                    for cid, group in results:
-                        await self._try_build_and_publish(cid, group)
-                else:
-                    cid, group = await correlate.store_input_capture(
-                        store=self.correlation_store,
-                        config=self.engine_config,
-                        input_cfg=inp_cfg,
-                        message=message,
-                    )
-                    if cid is not None:
-                        await self._try_build_and_publish(cid, group)
-                await transport.ack(message.id)
-            except Exception as exc:
-                logger.error(
-                    "engine_input_error",
-                    engine=self.engine_config.name,
-                    input=inp_cfg.name,
-                    error=str(exc),
+        while True:
+            batch = await transport.receive_batch()
+            if not batch:
+                continue
+            await asyncio.gather(*[
+                self._process_message(inp_cfg, transport, message, mode)
+                for message in batch
+            ])
+            await transport.flush_acks()
+
+    async def _process_message(
+        self, inp_cfg: InputConfig, transport: ITransport, message, mode: str
+    ) -> None:
+        try:
+            if mode == "grouping":
+                results = await correlate.store_input_captures_batch(
+                    store=self.correlation_store,
+                    config=self.engine_config,
+                    input_cfg=inp_cfg,
+                    message=message,
                 )
-                await transport.nack(message.id)
+                for cid, group in results:
+                    await self._try_build_and_publish(cid, group)
+            else:
+                cid, group = await correlate.store_input_capture(
+                    store=self.correlation_store,
+                    config=self.engine_config,
+                    input_cfg=inp_cfg,
+                    message=message,
+                )
+                if cid is not None:
+                    await self._try_build_and_publish(cid, group)
+            await transport.ack(message.id)
+        except Exception as exc:
+            logger.error(
+                "engine_input_error",
+                engine=self.engine_config.name,
+                input=inp_cfg.name,
+                error=str(exc),
+            )
+            await transport.nack(message.id)
 
     async def _try_build_and_publish(self, correlation_id: str, group: dict) -> None:
         pair = await correlate.try_build_pair(
