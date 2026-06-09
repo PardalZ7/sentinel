@@ -309,7 +309,7 @@ async def _handle_cortex_run_test(request):
 
     state: DashboardState = request.app["sentinel_state"]
     cortex_name = request.match_info["name"]
-    result = state.run_cortex_test(cortex_name)
+    result = await state.run_cortex_test(cortex_name)
     if result is None:
         return web.json_response({"error": f"cortex '{cortex_name}' not found"}, status=404)
 

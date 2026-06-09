@@ -542,11 +542,11 @@ class DashboardState:
         cb(rate)  # sync method on CortexRunner
         return True
 
-    def run_cortex_test(self, cortex_name: str) -> dict | None:
+    async def run_cortex_test(self, cortex_name: str) -> dict | None:
         cb = self._cortex_run_test_callbacks.get(cortex_name)
         if cb is None:
             return None
-        return cb()  # sync method on CortexRunner
+        return await cb()
 
     def update_agent_champion(self, agent_name: str, fp_rate: float, challengers_rejected: int) -> None:
         snap = self.agents.get(agent_name)

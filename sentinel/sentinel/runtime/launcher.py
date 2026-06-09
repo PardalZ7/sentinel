@@ -757,10 +757,12 @@ class CortexRunner:
                 self.cortex_config.name, self.test_sample_rate
             )
 
-    def run_test(self) -> dict:
+    async def run_test(self) -> dict:
         import torch
         import torch.nn as nn
 
+        if self.autoencoder_model is None:
+            await self._ensure_model_trained()
         if self.autoencoder_model is None:
             return {"error": "no_model", "samples_run": 0, "failed": 0}
         if not self.test_buffer:
