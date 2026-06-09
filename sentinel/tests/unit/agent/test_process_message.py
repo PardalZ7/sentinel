@@ -268,6 +268,22 @@ async def test_process_pair_normal():
     await asyncio.sleep(0)  # let fire-and-forget publish task run
 
     assert new_state.message_count == 1
+    # Agents in TRAINING do not publish events — wakeup protocol gates sending on INFERENCE
+    assert len(reporter.events) == 0
+
+
+@pytest.mark.asyncio
+async def test_process_pair_normal_inference():
+    reporter = MockReporter()
+    model_store = MockModelStore()
+    config = _agent_config(send_all=True)
+    state, detectors = _make_state(ModelPhase.INFERENCE)
+
+    pair = _make_pair("corr-2", latency_ms=1000.0)
+    new_state = await process_pair(pair, config, state, detectors, model_store, reporter)
+    await asyncio.sleep(0)  # let fire-and-forget publish task run
+
+    assert new_state.message_count == 1
     assert len(reporter.events) == 1
     event = reporter.events[0]
     assert event.agent_name == "agent01"
