@@ -256,12 +256,12 @@ class GrpcReporter(IReporter):
             self._backoff_s = min(self._backoff_s * 2, _MAX_BACKOFF_S)
 
     async def publish_wakeup(self, event: WakeupEvent) -> None:
-        """Send a WakeupEvent via gRPC."""
+        """Send a WakeupEvent via gRPC. Raises on delivery failure so callers can retry."""
         if self._standalone:
             logger.info("grpc_standalone_mode_wakeup", source=event.source_name)
             connected = await self._try_connect()
             if not connected:
-                return
+                raise GrpcUnavailableError(f"gRPC unavailable for wakeup from {event.source_name}")
             self._standalone = False
             self._backoff_s = 1.0
 
@@ -282,6 +282,7 @@ class GrpcReporter(IReporter):
             self._stub = None
             await asyncio.sleep(min(self._backoff_s, _MAX_BACKOFF_S))
             self._backoff_s = min(self._backoff_s * 2, _MAX_BACKOFF_S)
+            raise GrpcUnavailableError(str(exc)) from exc
 
     async def publish_sleep(self, event: SleepEvent) -> None:
         """Send a SleepEvent via gRPC."""

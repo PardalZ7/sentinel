@@ -103,6 +103,7 @@ class AgentRunner:
     reporter: IReporter
     pairs_transport: SqsSnsTransport
     dashboard_state: DashboardState | None = field(default=None, repr=False)
+    _wakeup_confirmed: bool = field(default=False, repr=False)
 
     async def run(self) -> None:
         """Main loop: load saved models, then consume the pairs queue."""
@@ -130,6 +131,7 @@ class AgentRunner:
 
         # If all detectors already start in INFERENCE (model loaded from disk), wake up downstream
         if all(d.phase == ModelPhase.INFERENCE for d in self.state.detectors.values()):
+            self._wakeup_confirmed = False
             await self._send_wakeup()
 
         async def _guarded_pairs_loop() -> None:
@@ -173,6 +175,11 @@ class AgentRunner:
                     agent=self.agent_config.name,
                     error=str(exc),
                 )
+
+            if not self._wakeup_confirmed and all(
+                d.phase == ModelPhase.INFERENCE for d in self.state.detectors.values()
+            ):
+                await self._send_wakeup()
 
     async def _run_background_training(self, det_name: str) -> None:
         """Train a challenger in background, then apply champion selection atomically."""
@@ -396,8 +403,10 @@ class AgentRunner:
         any_in_training = any(d.phase == ModelPhase.TRAINING for d in self.state.detectors.values())
 
         if phase == ModelPhase.INFERENCE and all_in_inference:
+            self._wakeup_confirmed = False
             await self._send_wakeup()
         elif phase == ModelPhase.TRAINING and any_in_training:
+            self._wakeup_confirmed = False
             await self._send_sleep()
 
     async def _send_wakeup(self) -> None:
@@ -410,6 +419,7 @@ class AgentRunner:
         )
         try:
             await self.reporter.publish_wakeup(event)
+            self._wakeup_confirmed = True
         except Exception as exc:
             logger.warning("agent_wakeup_failed", agent=self.agent_config.name, error=str(exc))
 
