@@ -976,6 +976,10 @@ function applySnapshot(data) {
   state.cortex  = data.cortex  || {};
   state.temporal_layers = data.temporal_layers || {};
   renderAll();
+  const atb = document.getElementById('alert-tbody');
+  if (atb) atb.innerHTML = '';
+  const ttb = document.getElementById('temporal-tbody');
+  if (ttb) ttb.innerHTML = '';
   (data.recent_alerts || []).forEach(a => appendAlertRow(a));
   (data.recent_temporal_anomalies || []).forEach(t => appendTemporalAnomalyRow(t));
   recalcTotals();
