@@ -50,10 +50,11 @@ message TemporalHeartbeatProto {
 }
 
 message TemporalAnomalyFlagsProto {
-  bool is_rate_anomaly    = 1;
-  bool is_volume_anomaly  = 2;
-  bool is_score_anomaly   = 3;
-  bool is_latency_anomaly = 4;
+  bool is_rate_anomaly       = 1;
+  bool is_volume_anomaly     = 2;
+  bool is_score_anomaly      = 3;
+  bool is_latency_anomaly    = 4;
+  bool is_throughput_anomaly = 5;
 }
 
 message TemporalAnomalySignalProto {
@@ -67,7 +68,9 @@ message TemporalAnomalySignalProto {
   int32  volume          = 7;
   float  volume_z        = 8;
   float  avg_score_z     = 9;
-  float  avg_latency_z   = 10;
+  float  avg_latency_z        = 10;
+  float  events_per_second    = 14;
+  float  events_per_second_z  = 15;
 
   TemporalAnomalyFlagsProto flags = 11;
 

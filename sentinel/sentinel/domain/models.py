@@ -142,6 +142,8 @@ class SeasonalBucket:
     var_avg_score: float = 0.0
     mean_avg_latency_ms: float = 0.0
     var_avg_latency_ms: float = 0.0
+    mean_events_per_second: float = 0.0
+    var_events_per_second: float = 0.0
 
 
 @dataclass
@@ -155,6 +157,7 @@ class WindowSnapshot:
     anomaly_rate: float
     avg_score: float
     avg_latency_ms: float
+    events_per_second: float
     contributing_agents: list[str]
 
 
@@ -185,10 +188,13 @@ class TemporalAnomalySignal:
     volume_z: float
     avg_score_z: float
     avg_latency_z: float
+    events_per_second: float
+    events_per_second_z: float
     is_rate_anomaly: bool
     is_volume_anomaly: bool
     is_score_anomaly: bool
     is_latency_anomaly: bool
+    is_throughput_anomaly: bool
     contributing_agents: list[str]
     bucket_confidence: int
 

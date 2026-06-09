@@ -61,6 +61,11 @@ def compute_z_scores(
             bucket.mean_avg_latency_ms,
             bucket.var_avg_latency_ms,
         ),
+        "events_per_second": _z(
+            snapshot.events_per_second,
+            bucket.mean_events_per_second,
+            bucket.var_events_per_second,
+        ),
     }
 
 
@@ -93,6 +98,9 @@ def update_bucket(
     new_lat_mean, new_lat_var = _ema_update(
         bucket.mean_avg_latency_ms, bucket.var_avg_latency_ms, snapshot.avg_latency_ms
     )
+    new_eps_mean, new_eps_var = _ema_update(
+        bucket.mean_events_per_second, bucket.var_events_per_second, snapshot.events_per_second
+    )
 
     return SeasonalBucket(
         n_observations=bucket.n_observations + 1,
@@ -104,4 +112,6 @@ def update_bucket(
         var_avg_score=new_score_var,
         mean_avg_latency_ms=new_lat_mean,
         var_avg_latency_ms=new_lat_var,
+        mean_events_per_second=new_eps_mean,
+        var_events_per_second=new_eps_var,
     )

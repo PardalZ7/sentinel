@@ -298,6 +298,7 @@ class TemporalLayerConfig(BaseModel):
     volume_z_threshold: float = 2.5
     avg_score_z_threshold: float = 2.0
     avg_latency_z_threshold: float = 2.5
+    throughput_z_threshold: float = 2.5
 
 
 class SentinelConfig(BaseModel):

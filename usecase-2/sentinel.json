@@ -139,7 +139,8 @@
         "anomaly_rate_z_threshold": 2.0,
         "volume_z_threshold": 2.5,
         "avg_score_z_threshold": 2.0,
-        "avg_latency_z_threshold": 2.5
+        "avg_latency_z_threshold": 2.5,
+        "throughput_z_threshold": 2.5
       }
     ],
 

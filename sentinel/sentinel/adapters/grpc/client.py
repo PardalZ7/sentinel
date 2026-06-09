@@ -203,6 +203,7 @@ class GrpcReporter(IReporter):
             is_volume_anomaly=signal.is_volume_anomaly,
             is_score_anomaly=signal.is_score_anomaly,
             is_latency_anomaly=signal.is_latency_anomaly,
+            is_throughput_anomaly=signal.is_throughput_anomaly,
         )
         proto = sentinel_pb2.TemporalAnomalySignalProto(
             layer_name=signal.layer_name,
@@ -215,6 +216,8 @@ class GrpcReporter(IReporter):
             volume_z=signal.volume_z,
             avg_score_z=signal.avg_score_z,
             avg_latency_z=signal.avg_latency_z,
+            events_per_second=signal.events_per_second,
+            events_per_second_z=signal.events_per_second_z,
             flags=flags,
             contributing_agents=signal.contributing_agents,
             bucket_confidence=signal.bucket_confidence,

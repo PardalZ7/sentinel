@@ -782,10 +782,13 @@ class CortexRunner:
                 volume_z=proto_event.volume_z,
                 avg_score_z=proto_event.avg_score_z,
                 avg_latency_z=proto_event.avg_latency_z,
+                events_per_second=proto_event.events_per_second,
+                events_per_second_z=proto_event.events_per_second_z,
                 is_rate_anomaly=proto_event.flags.is_rate_anomaly,
                 is_volume_anomaly=proto_event.flags.is_volume_anomaly,
                 is_score_anomaly=proto_event.flags.is_score_anomaly,
                 is_latency_anomaly=proto_event.flags.is_latency_anomaly,
+                is_throughput_anomaly=proto_event.flags.is_throughput_anomaly,
                 contributing_agents=list(proto_event.contributing_agents),
                 bucket_confidence=proto_event.bucket_confidence,
             )
@@ -1048,13 +1051,18 @@ class TemporalLayerRunner:
                     volume_z=z_scores.get("volume", 0.0),
                     avg_score_z=z_scores.get("avg_score", 0.0),
                     avg_latency_z=z_scores.get("avg_latency", 0.0),
+                    events_per_second=snapshot.events_per_second,
+                    events_per_second_z=z_scores.get("events_per_second", 0.0),
                     is_rate_anomaly=decision.is_rate_anomaly,
                     is_volume_anomaly=decision.is_volume_anomaly,
                     is_score_anomaly=decision.is_score_anomaly,
                     is_latency_anomaly=decision.is_latency_anomaly,
+                    is_throughput_anomaly=decision.is_throughput_anomaly,
                     contributing_agents=snapshot.contributing_agents,
                     bucket_confidence=confidence,
                 )
+                if self.dashboard_state is not None:
+                    self.dashboard_state.record_temporal_anomaly(signal)
                 for reporter in self._reporters:
                     if isinstance(reporter, GrpcReporter):
                         try:
@@ -1135,6 +1143,30 @@ class TemporalLayerRunner:
                 except Exception as exc:
                     logger.error("window_clock_loop_error", layer=self.config.name, error=str(exc))
 
+    async def _reset(self) -> None:
+        from sentinel.temporal.use_cases.window_accumulator import WindowAccumulator
+
+        if self._bucket_store is not None:
+            await self._bucket_store.clear_all_buckets()
+        self.phase = ModelPhase.WARMUP
+        self._accumulator = WindowAccumulator(
+            layer_name=self.config.name,
+            duration_seconds=self.config.bucket.duration_seconds,
+            window_start=datetime.now(tz=timezone.utc),
+        )
+        self._agent_phases.clear()
+        if self.dashboard_state is not None:
+            empty_buckets = [0] * self.config.bucket.count
+            self.dashboard_state.update_temporal_layer({
+                "name": self.config.name,
+                "phase": self.phase.value,
+                "current_bucket": 0,
+                "bucket_observations": empty_buckets,
+                "total_windows": 0,
+                "total_anomalies": 0,
+            })
+        logger.info("temporal_layer_reset", layer=self.config.name)
+
     async def run(self) -> None:
         from sentinel.adapters.grpc.server import create_server, start_server
         from sentinel.temporal.use_cases.bucket_store import BucketStore
@@ -1184,6 +1216,9 @@ class TemporalLayerRunner:
                 "total_windows": 0,
                 "total_anomalies": 0,
             })
+            self.dashboard_state.register_temporal_reset_callback(
+                self.config.name, self._reset
+            )
 
         server = create_server(
             host="0.0.0.0",

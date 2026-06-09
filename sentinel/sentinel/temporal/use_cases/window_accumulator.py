@@ -47,6 +47,8 @@ def close_window(
     avg_latency = (
         sum(e.processing_latency_ms for e in acc.events) / total if total > 0 else 0.0
     )
+    elapsed_s = (now - acc.window_start).total_seconds()
+    events_per_second = total / elapsed_s if elapsed_s > 0 else 0.0
 
     snapshot = WindowSnapshot(
         layer_name=acc.layer_name,
@@ -58,6 +60,7 @@ def close_window(
         anomaly_rate=anomaly_rate,
         avg_score=avg_score,
         avg_latency_ms=avg_latency,
+        events_per_second=events_per_second,
         contributing_agents=sorted(acc.active_agents),
     )
 
