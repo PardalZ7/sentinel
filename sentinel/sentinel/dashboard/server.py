@@ -101,16 +101,22 @@ async def _handle_sse(request):
             "Access-Control-Allow-Origin": "*",
         },
     )
-    await response.prepare(request)
-
-    snapshot = json.dumps({"type": "snapshot", "data": state.to_status_dict()})
-    await response.write(f"data: {snapshot}\n\n".encode())
-
     try:
+        await response.prepare(request)
+
+        snapshot = json.dumps({"type": "snapshot", "data": state.to_status_dict()})
+        await response.write(f"data: {snapshot}\n\n".encode())
+
         async for chunk in state.sse_stream():
             await response.write(chunk.encode())
     except (ConnectionResetError, asyncio.CancelledError):
         pass
+    except Exception as exc:
+        from aiohttp.client_exceptions import ClientConnectionResetError
+        if isinstance(exc, ClientConnectionResetError):
+            pass
+        else:
+            raise
 
     return response
 
