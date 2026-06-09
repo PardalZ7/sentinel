@@ -298,10 +298,8 @@ function startPeriod(index) {
   if (periodTimer) { clearTimeout(periodTimer); periodTimer = null; }
 
   if (index >= config.periods.length) {
-    running = false;
-    currentPeriodIndex = 0;
-    periodStartedAt = null;
-    console.log('[APP01] All periods completed.');
+    console.log('[APP01] All periods completed — cycling back to period 1.');
+    startPeriod(0);
     return;
   }
 
