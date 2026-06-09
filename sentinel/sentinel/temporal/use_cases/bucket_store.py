@@ -30,3 +30,8 @@ class BucketStore:
         if not buckets:
             return 0
         return min(b.n_observations for b in buckets)
+
+    async def clear_all_buckets(self) -> None:
+        keys = [self._key(i) for i in range(self._bucket_count)]
+        if keys:
+            await self._redis.delete(*keys)

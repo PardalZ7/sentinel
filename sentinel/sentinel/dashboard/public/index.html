@@ -464,6 +464,29 @@
   .sev-dot.WARNING  { background: var(--yellow); }
   .sev-dot.INFO     { background: var(--accent); }
 
+  /* Temporal anomaly table */
+  .temporal-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .temporal-table th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+  }
+  .temporal-table td { padding: 7px 12px; border-bottom: 1px solid rgba(51,65,85,.5); vertical-align: top; }
+  .temporal-flag { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 700; margin-right: 3px; }
+  .temporal-flag.rate     { background: rgba(239,68,68,.18);  color: var(--red);    border: 1px solid rgba(239,68,68,.3); }
+  .temporal-flag.volume   { background: rgba(245,158,11,.18); color: var(--yellow); border: 1px solid rgba(245,158,11,.3); }
+  .temporal-flag.score    { background: rgba(167,139,250,.18);color: var(--purple); border: 1px solid rgba(167,139,250,.3); }
+  .temporal-flag.latency  { background: rgba(56,189,248,.18); color: var(--accent); border: 1px solid rgba(56,189,248,.3); }
+  .conf-bar { display: inline-block; width: 32px; height: 5px; border-radius: 3px; background: var(--border); vertical-align: middle; }
+  .conf-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+
   /* Test card */
   .test-card {
     margin-top: 10px;
@@ -823,6 +846,7 @@
       <div class="tabs">
         <div class="tab active" onclick="switchTab('events', this)">Events</div>
         <div class="tab" onclick="switchTab('alerts', this)">Alerts</div>
+        <div class="tab" onclick="switchTab('temporal', this)">Temporal Anomalies</div>
       </div>
       <div class="tab-panel active" id="tab-events">
         <div class="peek-hint" id="peek-hint">Click <strong>Peek</strong> to load the last 100 events from the server buffer.</div>
@@ -832,6 +856,12 @@
         <table class="alert-table">
           <thead><tr><th>Time</th><th>Source</th><th>Severity</th><th>Type</th><th>Description</th></tr></thead>
           <tbody id="alert-tbody"></tbody>
+        </table>
+      </div>
+      <div class="tab-panel" id="tab-temporal">
+        <table class="temporal-table">
+          <thead><tr><th>Time</th><th>Layer</th><th>Flags</th><th>Rate</th><th>Volume</th><th>Agents</th><th>Conf</th></tr></thead>
+          <tbody id="temporal-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -932,6 +962,12 @@ function handleMessage(msg) {
     case 'temporal_update':
       applyTemporalUpdate(msg.data);
       break;
+    case 'temporal_anomaly':
+      appendTemporalAnomalyRow(msg.data);
+      break;
+    case 'topology_reset':
+      applyTopologyReset();
+      break;
   }
 }
 
@@ -941,6 +977,7 @@ function applySnapshot(data) {
   state.temporal_layers = data.temporal_layers || {};
   renderAll();
   (data.recent_alerts || []).forEach(a => appendAlertRow(a));
+  (data.recent_temporal_anomalies || []).forEach(t => appendTemporalAnomalyRow(t));
   recalcTotals();
 }
 
@@ -1091,6 +1128,15 @@ function applyTemporalUpdate(d) {
   const tl = state.temporal_layers[d.name] || {};
   state.temporal_layers[d.name] = { ...tl, ...d };
   updateTemporalCard(d.name);
+}
+
+function applyTopologyReset() {
+  const atb = document.getElementById('alert-tbody');
+  if (atb) atb.innerHTML = '';
+  const ttb = document.getElementById('temporal-tbody');
+  if (ttb) ttb.innerHTML = '';
+  const log = document.getElementById('event-log');
+  if (log) log.innerHTML = '';
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────
@@ -1618,6 +1664,77 @@ async function openEventDetail(ev) {
 
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function appendTemporalAnomalyRow(ta) {
+  const tb = document.getElementById('temporal-tbody');
+  if (!tb) return;
+  const row = document.createElement('tr');
+  row.style.cursor = 'pointer';
+
+  const flags = [
+    ta.is_rate_anomaly    ? '<span class="temporal-flag rate">RATE</span>'    : '',
+    ta.is_volume_anomaly  ? '<span class="temporal-flag volume">VOLUME</span>'  : '',
+    ta.is_score_anomaly   ? '<span class="temporal-flag score">SCORE</span>'   : '',
+    ta.is_latency_anomaly ? '<span class="temporal-flag latency">LATENCY</span>' : '',
+  ].join('');
+
+  const confPct = Math.round((ta.bucket_confidence / 100) * 100);
+  const confColor = confPct >= 80 ? 'var(--green)' : confPct >= 50 ? 'var(--yellow)' : 'var(--muted)';
+
+  row.innerHTML = `
+    <td style="white-space:nowrap;color:var(--muted)">${fmtTime(ta.ts)}</td>
+    <td style="font-weight:700">${ta.layer_name}</td>
+    <td>${flags || '<span style="color:var(--muted)">—</span>'}</td>
+    <td style="color:var(--red)">${(ta.anomaly_rate * 100).toFixed(1)}% <span style="color:var(--muted);font-size:10px">z=${ta.anomaly_rate_z.toFixed(1)}</span></td>
+    <td>${ta.volume} <span style="color:var(--muted);font-size:10px">z=${ta.volume_z.toFixed(1)}</span></td>
+    <td style="color:var(--muted);font-size:10px">${(ta.contributing_agents || []).slice(0,3).join(', ')}${(ta.contributing_agents||[]).length > 3 ? ' +' + ((ta.contributing_agents||[]).length - 3) : ''}</td>
+    <td><div class="conf-bar"><div class="conf-bar-fill" style="width:${confPct}%;background:${confColor}"></div></div> <span style="font-size:10px;color:${confColor}">${ta.bucket_confidence}</span></td>`;
+  row.addEventListener('click', () => openTemporalAnomalyDetail(ta));
+  tb.prepend(row);
+  while (tb.children.length > 100) tb.removeChild(tb.lastChild);
+}
+
+function openTemporalAnomalyDetail(ta) {
+  const modal = document.getElementById('event-modal');
+  const body  = document.getElementById('modal-body');
+  const title = document.getElementById('modal-title');
+
+  title.textContent = `Temporal Anomaly — ${ta.layer_name}`;
+  modal.classList.add('open');
+
+  const flags = [
+    ta.is_rate_anomaly    ? '<span class="temporal-flag rate">RATE</span>'    : '',
+    ta.is_volume_anomaly  ? '<span class="temporal-flag volume">VOLUME</span>'  : '',
+    ta.is_score_anomaly   ? '<span class="temporal-flag score">SCORE</span>'   : '',
+    ta.is_latency_anomaly ? '<span class="temporal-flag latency">LATENCY</span>' : '',
+  ].join('') || '—';
+
+  const windowStart = new Date(ta.window_start).toLocaleString();
+  const windowEnd   = new Date(ta.window_end).toLocaleString();
+  const hourOfDay   = ta.hour_of_week % 24;
+  const dayOfWeek   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][Math.floor(ta.hour_of_week / 24)];
+
+  body.innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">LAYER</div><div style="font-weight:700">${ta.layer_name}</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">DETECTED</div><div>${new Date(ta.ts).toLocaleString()}</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">WINDOW START</div><div>${windowStart}</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">WINDOW END</div><div>${windowEnd}</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">TIME CONTEXT</div><div>${dayOfWeek} ${hourOfDay}:00 (bucket ${ta.hour_of_week})</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">BUCKET CONFIDENCE</div><div>${ta.bucket_confidence} observations</div></div>
+    </div>
+    <div class="payload-section">ANOMALY FLAGS</div>
+    <div style="padding:8px 12px">${flags}</div>
+    <div class="payload-section">Z-SCORES</div>
+    <div class="detail-grid">
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">ANOMALY RATE</div><div style="color:var(--red)">${(ta.anomaly_rate*100).toFixed(2)}% <span style="color:var(--muted)">(z = ${ta.anomaly_rate_z.toFixed(2)})</span></div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">VOLUME</div><div>${ta.volume} events <span style="color:var(--muted)">(z = ${ta.volume_z.toFixed(2)})</span></div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">AVG SCORE</div><div>z = ${ta.avg_score_z.toFixed(2)}</div></div>
+      <div class="detail-cell"><div style="color:var(--muted);font-size:10px">AVG LATENCY</div><div>z = ${ta.avg_latency_z.toFixed(2)}</div></div>
+    </div>
+    <div class="payload-section">CONTRIBUTING AGENTS</div>
+    <div style="padding:8px 12px;color:var(--muted);font-size:11px">${(ta.contributing_agents||[]).join(', ') || '—'}</div>`;
 }
 
 function appendAlertRow(al) {

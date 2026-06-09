@@ -34,6 +34,7 @@ from sentinel.domain.models import Alert, HeartbeatEvent, ModelPhase, ProcessedE
 _SSE_QUEUE_MAXSIZE = 256
 _MAX_RECENT_EVENTS = 100
 _MAX_RECENT_ALERTS = 50
+_MAX_RECENT_TEMPORAL = 100
 _MAX_PAYLOAD_STORE = 200
 
 
@@ -132,6 +133,28 @@ class AlertRecord:
     alert_id: str = ""  # timestamp-based ID for payload lookup
 
 
+@dataclass
+class TemporalAnomalyRecord:
+    ts: str
+    layer_name: str
+    window_start: str
+    window_end: str
+    hour_of_week: int
+    anomaly_rate: float
+    anomaly_rate_z: float
+    volume: int
+    volume_z: float
+    avg_score_z: float
+    avg_latency_z: float
+    is_rate_anomaly: bool
+    is_volume_anomaly: bool
+    is_score_anomaly: bool
+    is_latency_anomaly: bool
+    contributing_agents: list[str]
+    bucket_confidence: int
+    anomaly_id: str = ""
+
+
 class DashboardState:
     """Central observation state.  Mutated only from the asyncio event loop."""
 
@@ -142,6 +165,7 @@ class DashboardState:
         self.recent_events: deque[EventRecord] = deque(maxlen=_MAX_RECENT_EVENTS)
         self.recent_errors: deque[EventRecord] = deque(maxlen=_MAX_RECENT_EVENTS)
         self.recent_alerts: deque[AlertRecord] = deque(maxlen=_MAX_RECENT_ALERTS)
+        self.recent_temporal_anomalies: deque[TemporalAnomalyRecord] = deque(maxlen=_MAX_RECENT_TEMPORAL)
         self._sse_queue: asyncio.Queue = asyncio.Queue(maxsize=_SSE_QUEUE_MAXSIZE)
         self._phase_change_callbacks: dict[str, Any] = {}       # agent_name → cb(phase, detector_name|None)
         self._agent_set_rate_callbacks: dict[str, Any] = {}     # agent_name → cb(rate, detector_name|None)
@@ -152,6 +176,7 @@ class DashboardState:
         self._auto_infer_callbacks: dict[str, Any] = {}          # agent_name → cb(detector_name, threshold|None)
         self._reset_agent_callbacks: dict[str, Any] = {}         # agent_name → async cb()
         self._reset_cortex_callbacks: dict[str, Any] = {}        # cortex_name → async cb()
+        self._reset_temporal_callbacks: dict[str, Any] = {}      # layer_name → async cb()
         self.config_data: dict = {}
         self._payload_store: dict[str, dict] = {}
         self._payload_order: deque[str] = deque(maxlen=_MAX_PAYLOAD_STORE)
@@ -246,6 +271,37 @@ class DashboardState:
                 {"diagnosis": alert.diagnosis, "affected_agents": alert.affected_agents},
                 None,
             )
+
+    def record_temporal_anomaly(self, signal) -> None:
+        from sentinel.domain.models import TemporalAnomalySignal
+        if not isinstance(signal, TemporalAnomalySignal):
+            return
+        anomaly_id = f"{signal.layer_name}:{signal.window_end.isoformat()}"
+        rec = TemporalAnomalyRecord(
+            ts=signal.window_end.isoformat(),
+            layer_name=signal.layer_name,
+            window_start=signal.window_start.isoformat(),
+            window_end=signal.window_end.isoformat(),
+            hour_of_week=signal.hour_of_week,
+            anomaly_rate=round(signal.anomaly_rate, 4),
+            anomaly_rate_z=round(signal.anomaly_rate_z, 3),
+            volume=signal.volume,
+            volume_z=round(signal.volume_z, 3),
+            avg_score_z=round(signal.avg_score_z, 3),
+            avg_latency_z=round(signal.avg_latency_z, 3),
+            is_rate_anomaly=signal.is_rate_anomaly,
+            is_volume_anomaly=signal.is_volume_anomaly,
+            is_score_anomaly=signal.is_score_anomaly,
+            is_latency_anomaly=signal.is_latency_anomaly,
+            contributing_agents=signal.contributing_agents,
+            bucket_confidence=signal.bucket_confidence,
+            anomaly_id=anomaly_id,
+        )
+        self.recent_temporal_anomalies.append(rec)
+        snap = self.temporal_layers.get(signal.layer_name)
+        if snap:
+            snap.total_anomalies += 1
+        self._push_sse("temporal_anomaly", asdict(rec))
 
     def mark_silent(self, agent_name: str) -> None:
         if agent_name in self.agents:
@@ -369,6 +425,10 @@ class DashboardState:
         """Register async reset callback for a cortex: async cb()."""
         self._reset_cortex_callbacks[cortex_name] = reset_cb
 
+    def register_temporal_reset_callback(self, layer_name: str, reset_cb) -> None:
+        """Register async reset callback for a temporal layer: async cb()."""
+        self._reset_temporal_callbacks[layer_name] = reset_cb
+
     async def reset_topology(self) -> None:
         """Reset all agents and cortex to initial state in-memory (buffers, models, counters).
 
@@ -379,10 +439,13 @@ class DashboardState:
             await cb()
         for cb in self._reset_cortex_callbacks.values():
             await cb()
+        for cb in self._reset_temporal_callbacks.values():
+            await cb()
 
         self.recent_events.clear()
         self.recent_errors.clear()
         self.recent_alerts.clear()
+        self.recent_temporal_anomalies.clear()
         self._payload_store.clear()
         self._payload_order.clear()
 
@@ -708,6 +771,7 @@ class DashboardState:
             "temporal_layers": {k: asdict(v) for k, v in self.temporal_layers.items()},
             "recent_events": [asdict(e) for e in list(self.recent_events)[-50:]],
             "recent_alerts": [asdict(a) for a in list(self.recent_alerts)],
+            "recent_temporal_anomalies": [asdict(t) for t in list(self.recent_temporal_anomalies)],
         }
 
 

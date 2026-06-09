@@ -742,6 +742,15 @@ async def _handle_errors_buffer(request):
     return web.json_response({"events": errors})
 
 
+async def _handle_temporal_anomalies_buffer(request):
+    from aiohttp import web
+    from dataclasses import asdict
+
+    state: DashboardState = request.app["sentinel_state"]
+    records = [asdict(r) for r in list(state.recent_temporal_anomalies)]
+    return web.json_response({"temporal_anomalies": records})
+
+
 async def _handle_event_payload(request):
     from aiohttp import web
 
@@ -782,6 +791,7 @@ def create_app(state: DashboardState, topology_manager=None, topology_store=None
     app.router.add_get("/api/events", _handle_sse)
     app.router.add_get("/api/events/buffer", _handle_events_buffer)
     app.router.add_get("/api/errors/buffer", _handle_errors_buffer)
+    app.router.add_get("/api/temporal-anomalies/buffer", _handle_temporal_anomalies_buffer)
     app.router.add_get("/api/events/{correlation_id}/payload", _handle_event_payload)
     app.router.add_get("/api/alerts/{alert_id}/payload", _handle_alert_payload)
     app.router.add_post("/api/agents/{name}/phase", _handle_phase_change)
