@@ -40,6 +40,7 @@ function addLog(entry) {
 app.post('/webhook', async (req, res) => {
   const receivedAt = new Date().toISOString();
   const rawPayload = req.body;
+  console.log(`[WEBHOOK] received payload:`, JSON.stringify(rawPayload).substring(0, 200));
 
   // Resolve topic — pull from payload (and strip it) or use default.
   let topicName = DEFAULT_OUTPUT_TOPIC;
@@ -48,6 +49,8 @@ app.post('/webhook', async (req, res) => {
     topicName = payload.output_topic;
     delete payload.output_topic;
   }
+
+  console.log(`[WEBHOOK] resolved topic: ${topicName}`);
 
   if (!TOPIC_NAME_RE.test(topicName)) {
     return res.status(400).json({ error: `invalid topic name: "${topicName}"` });
@@ -76,8 +79,11 @@ app.post('/webhook', async (req, res) => {
   }
 
   try {
+    const topicArn = buildTopicArn(topicName);
+    console.log(`[WEBHOOK] publishing to SNS — TopicArn: ${topicArn}`);
+
     const result = await snsClient.send(new PublishCommand({
-      TopicArn: buildTopicArn(topicName),
+      TopicArn: topicArn,
       Message: JSON.stringify(payload),
       MessageAttributes: {
         source: { DataType: 'String', StringValue: 'webhook' },
@@ -86,10 +92,12 @@ app.post('/webhook', async (req, res) => {
 
     receivedCount++;
     addLog({ receivedAt, topic: topicName, messageId: result.MessageId, payload });
-    console.log(`[WEBHOOK] published to ${topicName} — MessageId: ${result.MessageId}`);
+    console.log(`[WEBHOOK] ✓ published to ${topicName} — MessageId: ${result.MessageId}`);
     return res.status(202).json({ topic: topicName, message_id: result.MessageId });
   } catch (err) {
-    console.error(`[WEBHOOK] publish error: ${err?.message || String(err)}`);
+    console.error(`[WEBHOOK] ✗ SNS publish FAILED: ${err?.message || String(err)}`);
+    console.error(`[WEBHOOK] Error details:`, err);
+    addLog({ receivedAt, topic: topicName, skipped: true, reason: `publish error: ${err?.message}` });
     return res.status(500).json({ error: 'publish failed', detail: err?.message });
   }
 });
