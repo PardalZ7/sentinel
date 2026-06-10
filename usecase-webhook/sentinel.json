@@ -1,0 +1,152 @@
+{
+  "sentinel": {
+    "schema_version": 1,
+    "storage_path": "~/.sentinel/usecase-webhook",
+
+    "redis": {
+      "host": "localhost",
+      "port": 6379
+    },
+
+    "aws": {
+      "region": "us-east-1"
+    },
+
+    "dashboard": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 8890
+    },
+
+    "control_plane": {
+      "enabled": true
+    },
+
+    "alarm_queue": {
+      "type": "sqs",
+      "resource": "${SQS_BASE_URL}/sentinel-alarms"
+    },
+
+    "correlation_engines": [
+      {
+        "_comment": "engine01 — consumes from ucwh-engine01-input (subscribed to ucwh-output SNS topic). Publishes CorrelatedPairs to ucwh-agent01-pairs.",
+        "name": "engine01",
+        "inputs": [
+          {
+            "name": "data",
+            "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/ucwh-engine01-input" },
+            "correlation_field": "id",
+            "correlation_mode": "normal"
+          }
+        ],
+        "correlation_ttl_s": 180,
+        "destinations": [
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/ucwh-agent01-pairs" }
+        ]
+      }
+    ],
+
+    "agents": [
+      {
+        "_comment": "webhook_watcher — monitors payloads received by the webhook. IF detects operational anomalies; vae_semantic detects semantic inconsistencies; lstm_sequence detects temporal patterns.",
+        "name": "webhook_watcher",
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/ucwh-agent01-pairs" },
+        "test_buffer_size": 150,
+        "cortex": [{ "host": "${UCWH_ENGINE_HOST:-localhost}", "port": 50060 }],
+        "reporting": {
+          "heartbeat_interval_s": 15,
+          "send_all_events": false
+        },
+        "denial_rules": [],
+        "detectors": [
+          {
+            "name": "if_operational",
+            "algorithm": "isolation_forest",
+            "phase": "TRAINING",
+            "training_window": 500,
+            "test_buffer_size": 100,
+            "anomaly_threshold": -0.1,
+            "n_estimators": 100,
+            "contamination": "auto",
+            "auto_infer_fp_threshold": 0.05,
+            "denial_buffer_size": 200,
+            "min_denial_recall": 0.5
+          },
+          {
+            "_comment": "vae_semantic — unconditional VAE over all numeric payload fields (auto-discovered). Flags events outside the learned distribution.",
+            "name": "vae_semantic",
+            "algorithm": "vae",
+            "phase": "TRAINING",
+            "training_window": 1000,
+            "test_buffer_size": 150,
+            "anomaly_threshold": 0.05,
+            "hidden_dim": 32,
+            "latent_dim": 8,
+            "learning_rate": 0.001,
+            "epochs": 30,
+            "kl_weight": 1.0,
+            "gating_detector": "if_operational",
+            "denial_buffer_size": 200,
+            "min_denial_recall": 0.5
+          },
+          {
+            "_comment": "lstm_sequence — LSTM Autoencoder over windows of 10 consecutive events. Detects anomalous temporal patterns.",
+            "name": "lstm_sequence",
+            "algorithm": "lstm_ae",
+            "phase": "TRAINING",
+            "training_window": 500,
+            "test_buffer_size": 100,
+            "anomaly_threshold": 0.05,
+            "sequence_length": 10,
+            "hidden_dim": 32,
+            "learning_rate": 0.001,
+            "epochs": 30
+          }
+        ]
+      }
+    ],
+
+    "temporal_layers": [
+      {
+        "_comment": "temporal01 — aggregates webhook_watcher signals. 4 buckets × 2 min = 8 min cycle. Reports to cortex01.",
+        "name": "temporal01",
+        "grpc_port": 50060,
+        "inputs": ["webhook_watcher"],
+        "cortex": [{ "host": "${UCWH_ENGINE_HOST:-localhost}", "port": 50051 }],
+        "silence_threshold_s": 45.0,
+        "heartbeat_interval_s": 15,
+        "bucket": {
+          "count": 4,
+          "duration_seconds": 120,
+          "min_observations": 2,
+          "ema_alpha": 0.3
+        },
+        "anomaly_rate_z_threshold": 2.0,
+        "volume_z_threshold": 2.5,
+        "avg_score_z_threshold": 2.0,
+        "avg_latency_z_threshold": 2.5,
+        "throughput_z_threshold": 2.5
+      }
+    ],
+
+    "cortex": [
+      {
+        "_comment": "cortex01 — monitors temporal01. Detects cascades and systemic failure patterns in webhook traffic.",
+        "name": "cortex01",
+        "grpc_port": 50051,
+        "inputs": ["temporal01"],
+        "silence_threshold_s": 45,
+        "test_buffer_size": 200,
+        "training_sample_interval_s": 5,
+        "adaptation_mode": "fine_tuning",
+        "adaptation": {
+          "fine_tuning_interval": 100,
+          "fine_tuning_epochs": 8,
+          "fine_tuning_lr": 0.0001,
+          "replay_ratio": 0.3,
+          "replay_buffer_size": 500
+        }
+      }
+    ]
+  }
+}

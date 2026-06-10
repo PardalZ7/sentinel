@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sentinel — Usecase Webhook</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; color: #58a6ff; letter-spacing: 0.5px; }
+    header .subtitle { color: #8b949e; font-size: 13px; }
+
+    .main { display: flex; flex-direction: column; gap: 16px; padding: 16px 24px; flex: 1; }
+
+    .panel {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: #1c2128;
+      border-bottom: 1px solid #30363d;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .panel-header h2 {
+      font-size: 14px; font-weight: 600; color: #e6edf3;
+      text-transform: uppercase; letter-spacing: 0.8px;
+    }
+
+    .panel-body { padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+
+    button {
+      background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+      border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #30363d; }
+
+    .btn-topology {
+      background: #0d2a1a; color: #3fb950; border-color: #1f6b3a;
+      font-weight: 600; font-size: 12px; padding: 5px 12px;
+    }
+    .btn-topology:hover { background: #1f6b3a; color: #fff; }
+    .btn-topology:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Stats row */
+    .stats-row {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      padding: 12px 16px;
+      background: #0d1117;
+      border-radius: 6px;
+      border: 1px solid #21262d;
+    }
+    .stat-item { display: flex; flex-direction: column; gap: 2px; }
+    .stat-label { font-size: 11px; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-family: monospace; font-size: 16px; font-weight: 700; color: #3fb950; }
+    .stat-value.secondary { color: #58a6ff; }
+
+    /* Payload log */
+    .output-log {
+      flex: 1; min-height: 400px; max-height: 600px; overflow-y: auto;
+      background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
+      padding: 10px; display: flex; flex-direction: column; gap: 8px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px;
+    }
+    .output-log::-webkit-scrollbar { width: 6px; }
+    .output-log::-webkit-scrollbar-track { background: #0d1117; }
+    .output-log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+    .log-entry {
+      background: #161b22; border: 1px solid #21262d; border-radius: 4px;
+      padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+      animation: fadeIn 0.2s ease;
+    }
+    .log-entry.skipped { border-color: #6e5500; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+    .log-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .log-ts { color: #6e7681; font-size: 11px; }
+    .log-topic {
+      font-size: 11px; font-weight: 600; color: #79c0ff;
+      background: #0d1f3c; border: 1px solid #1f4080;
+      border-radius: 3px; padding: 1px 6px;
+    }
+    .log-msgid { font-size: 11px; color: #8b949e; }
+    .badge-skipped {
+      font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      background: #2d2200; color: #e3b341; border: 1px solid #6e5500;
+    }
+
+    .log-payload { color: #c9d1d9; white-space: pre-wrap; word-break: break-all; }
+    .empty-log { color: #484f58; text-align: center; margin: auto; font-style: italic; }
+    .output-status { font-size: 11px; color: #8b949e; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sentinel</h1>
+    <span class="subtitle">Usecase Webhook</span>
+    <button class="btn-topology" id="topology-btn" onclick="generateTopology()" style="margin-left:auto;">⬡ Generate Topology</button>
+    <span id="topology-status" style="font-size:12px;color:#8b949e;margin-left:8px;"></span>
+  </header>
+
+  <div class="main">
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-item">
+        <span class="stat-label">Received</span>
+        <span class="stat-value" id="received-count">—</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Status</span>
+        <span class="stat-value secondary" id="webhook-status">—</span>
+      </div>
+    </div>
+
+    <!-- Payload log -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Payloads</h2>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="output-status" id="output-status"></span>
+          <button onclick="refreshLog()" style="font-size:12px;padding:4px 10px;">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="panel-body" style="padding:12px;">
+        <div class="output-log" id="output-log">
+          <span class="empty-log">No webhooks received yet…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Payload log ───────────────────────────────────────────────────────────
+
+    async function refreshLog() {
+      const statusEl = document.getElementById('output-status');
+      statusEl.textContent = 'Loading…';
+      try {
+        const res = await fetch('/app/buffer');
+        const entries = await res.json();
+        const log = document.getElementById('output-log');
+
+        if (!entries.length) {
+          log.innerHTML = '<span class="empty-log">No webhooks received yet…</span>';
+          statusEl.textContent = '';
+          return;
+        }
+
+        log.innerHTML = '';
+        for (const e of entries) {
+          const div = document.createElement('div');
+          div.className = 'log-entry' + (e.skipped ? ' skipped' : '');
+
+          const meta = document.createElement('div');
+          meta.className = 'log-meta';
+
+          const ts = document.createElement('span');
+          ts.className = 'log-ts';
+          ts.textContent = e.receivedAt;
+          meta.appendChild(ts);
+
+          if (e.topic) {
+            const topicBadge = document.createElement('span');
+            topicBadge.className = 'log-topic';
+            topicBadge.textContent = e.topic;
+            meta.appendChild(topicBadge);
+          }
+
+          if (e.skipped) {
+            const b = document.createElement('span');
+            b.className = 'badge-skipped';
+            b.textContent = 'skipped';
+            meta.appendChild(b);
+            const reason = document.createElement('span');
+            reason.className = 'log-msgid';
+            reason.textContent = e.reason || '';
+            meta.appendChild(reason);
+          } else if (e.messageId) {
+            const msgId = document.createElement('span');
+            msgId.className = 'log-msgid';
+            msgId.textContent = e.messageId;
+            meta.appendChild(msgId);
+          }
+
+          div.appendChild(meta);
+
+          if (e.payload) {
+            const payload = document.createElement('div');
+            payload.className = 'log-payload';
+            payload.textContent = JSON.stringify(e.payload, null, 2);
+            div.appendChild(payload);
+          }
+
+          log.appendChild(div);
+        }
+        statusEl.textContent = `${entries.length} entries`;
+      } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    // ── Stats polling ─────────────────────────────────────────────────────────
+
+    async function pollStats() {
+      try {
+        const res = await fetch('/app/health');
+        if (!res.ok) return;
+        const data = await res.json();
+        document.getElementById('received-count').textContent = data.receivedCount ?? '—';
+        document.getElementById('webhook-status').textContent = data.status ?? '—';
+      } catch {}
+    }
+
+    // ── Generate Topology ─────────────────────────────────────────────────────
+
+    async function generateTopology() {
+      const btn = document.getElementById('topology-btn');
+      const status = document.getElementById('topology-status');
+      btn.disabled = true;
+      status.textContent = 'Deploying topology…';
+      status.style.color = '#8b949e';
+      try {
+        const res = await fetch('/setup-topology', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          const agents = (data.body?.agents || []).join(', ') || '—';
+          const cortex = (data.body?.cortex || []).join(', ') || '—';
+          status.textContent = `Deployed ✓ agents:[${agents}] cortex:[${cortex}]`;
+          status.style.color = '#3fb950';
+        } else {
+          const msg = data.body?.error || data.body?.detail || JSON.stringify(data.body);
+          status.textContent = `Deploy failed: ${msg}`;
+          status.style.color = '#f85149';
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.style.color = '#f85149';
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => { status.textContent = ''; }, 6000);
+      }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+
+    refreshLog();
+    pollStats();
+    setInterval(refreshLog, 2000);
+    setInterval(pollStats, 2000);
+  </script>
+</body>
+</html>

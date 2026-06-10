@@ -1,0 +1,24 @@
+# Exclude everything by default, then allow only what the build needs
+*
+
+# Allow sentinel package
+!sentinel/
+sentinel/.venv
+sentinel/**/__pycache__
+sentinel/**/*.pyc
+sentinel/.pytest_cache
+sentinel/tests/
+sentinel/storage/
+sentinel/**/*.pt
+sentinel/**/*.pkl
+sentinel/**/*.joblib
+**/*.egg-info/
+**/.pytest_cache/
+
+# Allow usecase-webhook source
+!usecase-webhook/
+usecase-webhook/node_modules
+usecase-webhook/**/node_modules
+usecase-webhook/infra/
+usecase-webhook/.env.local
+usecase-webhook/*.md
