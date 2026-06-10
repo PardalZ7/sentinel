@@ -55,7 +55,15 @@ echo "[entrypoint] DEFAULT_OUTPUT_TOPIC=${DEFAULT_OUTPUT_TOPIC}"
 
 # Start webhook server in background
 echo "[entrypoint] starting webhook server..."
-node /app/apps/webhook/index.js &
+node /app/apps/webhook/index.js > /tmp/webhook.log 2>&1 &
+WEBHOOK_PID=$!
+echo "[entrypoint] webhook started (pid=$WEBHOOK_PID)"
+sleep 1
+if ! kill -0 $WEBHOOK_PID 2>/dev/null; then
+    echo "[entrypoint] ERROR: webhook failed to start. Log:"
+    cat /tmp/webhook.log
+    exit 1
+fi
 
 # Start correlation engine immediately
 echo "[entrypoint] starting correlation engine (mode=engine)..."
