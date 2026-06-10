@@ -29,19 +29,19 @@
 
     "correlation_engines": [
       {
-        "_comment": "engine01 — consumes from ucwh-engine01-input (subscribed to ucwh-output SNS topic). Publishes CorrelatedPairs to ucwh-agent01-pairs.",
+        "_comment": "engine01 — consumes from uc2-engine01-input (shared with usecase-2). Publishes CorrelatedPairs to ucwh-agent01-pairs.",
         "name": "engine01",
         "inputs": [
           {
             "name": "data",
-            "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/ucwh-engine01-input" },
+            "transport": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-engine01-input" },
             "correlation_field": "id",
             "correlation_mode": "normal"
           }
         ],
         "correlation_ttl_s": 180,
         "destinations": [
-          { "type": "sqs", "resource": "${SQS_BASE_URL}/ucwh-agent01-pairs" }
+          { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent01-pairs" }
         ]
       }
     ],
@@ -50,7 +50,7 @@
       {
         "_comment": "webhook_watcher — monitors payloads received by the webhook. IF detects operational anomalies; vae_semantic detects semantic inconsistencies; lstm_sequence detects temporal patterns.",
         "name": "webhook_watcher",
-        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/ucwh-agent01-pairs" },
+        "pairs_queue": { "type": "sqs", "resource": "${SQS_BASE_URL}/uc2-agent01-pairs" },
         "test_buffer_size": 150,
         "cortex": [{ "host": "${UCWH_ENGINE_HOST:-localhost}", "port": 50060 }],
         "reporting": {
