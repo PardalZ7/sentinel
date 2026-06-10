@@ -208,11 +208,25 @@ async def _handle_timeout(
     return state
 
 
+def _sequence_sample(det_state: DetectorState) -> dict[str, Any]:
+    """Snapshot the detector's current rolling window as a scoreable window dict."""
+    return {"_sequence": list(det_state.sequence_buffer)}
+
+
+def _append_to_sequence(det_state: DetectorState, detector: IDetector, event_dict: dict) -> None:
+    """Append the event to a sequence detector's rolling window, trimming to size."""
+    buf = det_state.sequence_buffer
+    buf.append(event_dict)
+    while len(buf) > detector.sequence_length:
+        buf.popleft()
+
+
 async def _handle_denial_rule_hit(
     pair: CorrelatedPair,
     event_dict: dict[str, Any],
     agent_config: AgentConfig,
     state: AgentState,
+    detectors: dict[str, IDetector],
     reporter: IReporter,
     rule_name: str,
     score: float,
@@ -237,8 +251,18 @@ async def _handle_denial_rule_hit(
 
     # Accumulate denied samples into each TRAINING detector's denial_buffer so
     # that champion selection can later validate recall on known-bad samples.
-    for det_state in state.detectors.values():
-        if det_state.phase == ModelPhase.TRAINING:
+    # Sequence detectors store the whole window ending at the bad event, then
+    # clear their rolling window — the denial event must not leak into future
+    # scoring/test windows as if it were normal context.
+    for det_name, det_state in state.detectors.items():
+        detector = detectors.get(det_name)
+        if detector is not None and detector.requires_sequence:
+            if det_state.phase == ModelPhase.TRAINING:
+                _append_to_sequence(det_state, detector, event_dict)
+                if len(det_state.sequence_buffer) >= detector.sequence_length:
+                    det_state.denial_buffer.append(_sequence_sample(det_state))
+            det_state.sequence_buffer.clear()
+        elif det_state.phase == ModelPhase.TRAINING:
             det_state.denial_buffer.append(event_dict)
 
     state.message_count += 1
@@ -263,6 +287,7 @@ async def _score_and_train(
             event_dict=event_dict,
             agent_config=agent_config,
             state=state,
+            detectors=detectors,
             reporter=reporter,
             rule_name=denial_hit.rule_name,
             score=denial_hit.score,
@@ -271,6 +296,14 @@ async def _score_and_train(
     worst_anomaly_score = 0.0
     detected_anomaly = False
     loop = asyncio.get_running_loop()
+
+    # ── Phase 0: Update rolling windows of sequence-aware detectors ──
+    # Done for every phase (not just INFERENCE) so a detector that transitions
+    # to INFERENCE has a warm window instead of restarting its cold start.
+    for det_name, det_state in state.detectors.items():
+        detector = detectors.get(det_name)
+        if detector is not None and detector.requires_sequence:
+            _append_to_sequence(det_state, detector, event_dict)
 
     # ── Phase 1: Score all INFERENCE detectors concurrently ──────────
     _inference_jobs: list[tuple] = []
@@ -281,7 +314,14 @@ async def _score_and_train(
             and det_state.phase == ModelPhase.INFERENCE
             and det_state.model is not None
         ):
-            fut = loop.run_in_executor(None, detector.score, det_state.model, event_dict)
+            if detector.requires_sequence:
+                # Cold start: a sequence detector only scores full windows.
+                if len(det_state.sequence_buffer) < detector.sequence_length:
+                    continue
+                sample = _sequence_sample(det_state)
+            else:
+                sample = event_dict
+            fut = loop.run_in_executor(None, detector.score, det_state.model, sample)
             _inference_jobs.append((det_name, det_state, detector, fut))
 
     if _inference_jobs:
@@ -327,16 +367,47 @@ async def _score_and_train(
             gate_detector = detectors.get(det_state.gating_detector)
             if gate_state and gate_detector and gate_state.model is not None:
                 try:
+                    if gate_detector.requires_sequence:
+                        # A sequence gate can only judge full windows.
+                        if len(gate_state.sequence_buffer) < gate_detector.sequence_length:
+                            raise LookupError("gate window not full")
+                        gate_sample = _sequence_sample(gate_state)
+                    else:
+                        gate_sample = event_dict
                     gate_score = await loop.run_in_executor(
-                        None, gate_detector.score, gate_state.model, event_dict
+                        None, gate_detector.score, gate_state.model, gate_sample
                     )
-                    if gate_detector.is_anomaly(gate_score):
+                    if gate_detector.is_anomaly(gate_score, gate_state.model):
+                        if detector.requires_sequence:
+                            # Gating discards the whole window: the contaminated
+                            # event must not remain as context for future windows.
+                            det_state.sequence_buffer.clear()
                         continue
                 except Exception:
                     pass  # gate unavailable — allow sample through
 
         max_test_size = detector.test_buffer_size
         test_buf = det_state.test_buffer
+
+        if detector.requires_sequence:
+            # Sequence detectors need a CONTIGUOUS training buffer: fit() slices
+            # it into sliding windows, so events are never diverted away from it.
+            # The test buffer instead stores snapshots of full windows (same
+            # fill-then-reservoir policy). Snapshots overlap training windows by
+            # construction — accepted trade-off to preserve contiguity.
+            det_state.training_buffer.append(event_dict)
+
+            if len(det_state.sequence_buffer) >= detector.sequence_length:
+                if len(test_buf) < max_test_size:
+                    test_buf.append(_sequence_sample(det_state))
+                elif det_state.test_sample_rate > 0.0 and random.random() < det_state.test_sample_rate:
+                    test_buf.popleft()
+                    test_buf.append(_sequence_sample(det_state))
+
+            if should_train(det_state.training_buffer, detector.training_window) and not det_state.training_in_progress:
+                det_state.training_in_progress = True
+            continue
+
         divert_to_test = False
 
         if len(test_buf) < max_test_size:

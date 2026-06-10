@@ -120,10 +120,21 @@ class DetectorConfig(BaseModel):
                           More data-hungry (~2000+ samples). field_map optional.
       nri               — Neural Relational Inference: learns field dependency graphs.
                           Currently a stub — interface is stable for future implementation.
+      vae               — Unconditional VAE: learns P(all_fields) without requiring a
+                          field_map. Detects events outside the learned distribution.
+                          field_map optional (restricts fields when provided).
+      svdd              — Deep SVDD: learns a compact hypersphere around normal data
+                          in latent space. Score = distance to center. field_map optional.
+      lstm_ae           — LSTM Autoencoder over event sequences. Detects anomalous
+                          temporal patterns (ordering, progressive degradation).
+                          Sequence-aware: requires sequence_length consecutive events.
+      tcn_ae            — Temporal Convolutional Network Autoencoder. Same use cases
+                          as lstm_ae with parallel training and stable gradients on
+                          long sequences. Sequence-aware.
 
     Threshold semantics differ by algorithm family:
       isolation_forest  — anomaly when score < threshold  (threshold is negative, e.g. -0.1)
-      cvae / maf / nri  — anomaly when score > threshold  (threshold is positive, e.g. 0.05)
+      all others        — anomaly when score > threshold  (threshold is positive, e.g. 0.05)
 
     The field_map is only meaningful for semantic detectors (cvae, maf, nri).
     It should be configured in the usecase's sentinel.json, not in library defaults,
@@ -133,7 +144,9 @@ class DetectorConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str
-    algorithm: Literal["isolation_forest", "cvae", "maf", "nri"] = "isolation_forest"
+    algorithm: Literal[
+        "isolation_forest", "cvae", "maf", "nri", "vae", "svdd", "lstm_ae", "tcn_ae"
+    ] = "isolation_forest"
     phase: str = "TRAINING"
     training_window: int = 500
     test_buffer_size: int = 100
@@ -144,11 +157,25 @@ class DetectorConfig(BaseModel):
     n_estimators: int = 100
     contamination: str | float = "auto"
 
-    # Neural network parameters (cVAE and MAF; ignored by isolation_forest)
+    # Neural network parameters (cVAE, MAF, VAE, SVDD, LSTM-AE, TCN-AE; ignored by isolation_forest)
     hidden_dim: int = 32
     latent_dim: int = 8
     learning_rate: float = 0.001
     epochs: int = 30
+
+    # KL divergence weight in the ELBO loss (cvae, vae)
+    kl_weight: float = 1.0
+
+    # Expected anomaly fraction for threshold calibration (svdd): the auto-threshold
+    # is set at the (1-nu) percentile of training-set distances to the center.
+    nu: float = 0.1
+
+    # Sequence parameters (lstm_ae, tcn_ae): how many consecutive events form one
+    # input window. Sequential detectors only score once the window is full.
+    sequence_length: int = 10
+
+    # Causal convolution kernel size (tcn_ae)
+    kernel_size: int = 3
 
     # Auto-inference: when set, the detector auto-transitions TRAINING→INFERENCE
     # once the champion FP rate drops below this threshold (0.0–1.0). None = disabled.

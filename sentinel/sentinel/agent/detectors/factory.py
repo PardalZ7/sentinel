@@ -45,8 +45,24 @@ def create_detector(config: DetectorConfig) -> IDetector:
             from sentinel.agent.detectors.nri_detector import NRIDetector
             return NRIDetector(config)
 
+        case "vae":
+            from sentinel.agent.detectors.vae_detector import VAEDetector
+            return VAEDetector(config)
+
+        case "svdd":
+            from sentinel.agent.detectors.svdd_detector import SVDDDetector
+            return SVDDDetector(config)
+
+        case "lstm_ae":
+            from sentinel.agent.detectors.lstm_ae_detector import LSTMAEDetector
+            return LSTMAEDetector(config)
+
+        case "tcn_ae":
+            from sentinel.agent.detectors.tcn_ae_detector import TCNAEDetector
+            return TCNAEDetector(config)
+
         case _:
             raise ValueError(
                 f"Unknown detector algorithm '{config.algorithm}'. "
-                f"Valid options: isolation_forest, cvae, maf, nri."
+                f"Valid options: isolation_forest, cvae, maf, nri, vae, svdd, lstm_ae, tcn_ae."
             )

@@ -51,7 +51,7 @@ def run_detector_test(detector: IDetector, det_state: DetectorState) -> dict:
     for sample in buffer:
         try:
             score = detector.score(det_state.model, sample)
-            if detector.is_anomaly(score):
+            if detector.is_anomaly(score, det_state.model):
                 failed += 1
         except Exception as exc:
             logger.warning(
@@ -84,7 +84,7 @@ def _append_denial_recall(
     for sample in det_state.denial_buffer:
         try:
             score = detector.score(det_state.model, sample)
-            if detector.is_anomaly(score):
+            if detector.is_anomaly(score, det_state.model):
                 recalled += 1
         except Exception as exc:
             logger.warning(

@@ -70,6 +70,7 @@ class DetectorState:
     denial_buffer: deque = field(default_factory=deque)    # samples flagged by denial rules during TRAINING, used for recall validation
     denial_buffer_size: int = 200                          # maxlen of denial_buffer; 0 = unbounded
     min_denial_recall: float = 0.0                         # minimum recall on denial_buffer for challenger promotion; 0.0 = disabled
+    sequence_buffer: deque = field(default_factory=deque)  # rolling window of recent event dicts for sequence-aware detectors (lstm_ae, tcn_ae); trimmed to detector.sequence_length by the use-case layer
 
     def reset(self) -> "DetectorState":
         """Return a copy with all runtime state cleared but configuration preserved."""
@@ -80,6 +81,7 @@ class DetectorState:
             model=None,
             training_buffer=[],
             test_buffer=deque(),
+            sequence_buffer=deque(),
             denial_buffer=deque(maxlen=self.denial_buffer_size if self.denial_buffer_size > 0 else None),
             last_test_result={},
             champion_fp_rate=1.0,
@@ -139,6 +141,23 @@ class IDetector(ABC):
     @abstractmethod
     def test_buffer_size(self) -> int:
         """Maximum number of hold-out samples kept for champion evaluation."""
+
+    @property
+    def requires_sequence(self) -> bool:
+        """True for sequence-aware detectors (lstm_ae, tcn_ae).
+
+        When True, the use-case layer maintains a rolling window of the last
+        sequence_length event dicts in DetectorState.sequence_buffer and passes
+        a dict with a "_sequence" key (list of event dicts, oldest first) to
+        score(). Test and denial buffers store whole-window dicts of the same
+        shape instead of individual events. Default: False (per-event detector).
+        """
+        return False
+
+    @property
+    def sequence_length(self) -> int:
+        """Window size for sequence-aware detectors. Ignored when requires_sequence is False."""
+        return 1
 
     @abstractmethod
     def extract_features(self, event_dict: dict) -> list[float]:

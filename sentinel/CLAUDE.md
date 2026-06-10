@@ -24,6 +24,11 @@ sentinel/                          # pacote Python
 │   │   ├── isolation_forest_detector.py
 │   │   ├── cvae_detector.py
 │   │   ├── maf_detector.py
+│   │   ├── vae_detector.py        # VAE incondicional, field discovery automático
+│   │   ├── svdd_detector.py       # Deep SVDD, distância ao centro no espaço latente
+│   │   ├── sequence_base.py       # base comum dos detectores sequenciais
+│   │   ├── lstm_ae_detector.py    # LSTM Autoencoder (sequence-aware)
+│   │   ├── tcn_ae_detector.py     # TCN Autoencoder (sequence-aware)
 │   │   ├── nri_detector.py        # stub
 │   │   └── factory.py
 │   ├── isolation_forest.py        # funções sklearn de baixo nível (legado, mantido)
@@ -118,6 +123,8 @@ sentinel status
 11. **field_map é configuração do usecase** — nomes de campos do payload são específicos do sistema monitorado; nunca são hardcoded no Sentinel.
 12. **Backward compat via síntese** — agent sem `detectors` no config recebe um detector IsolationForest sintetizado automaticamente pelo launcher a partir de `model.isolation_forest`.
 13. **Anomalia = any()** — um evento é anômalo se qualquer detector em INFERENCE o sinalizar. Score reportado = pior score entre os que sinalizaram.
+14. **Detectores sequenciais (lstm_ae, tcn_ae)** — `IDetector.requires_sequence=True`. O use-case layer mantém uma janela deslizante dos últimos `sequence_length` eventos em `DetectorState.sequence_buffer` e passa `{"_sequence": [...]}` ao `score()`. Cold start: só pontuam com janela cheia. O training buffer permanece contíguo (fit fatia em janelas deslizantes); test/denial buffers guardam janelas completas. Gating e denial hits limpam a janela em vez de abrir buracos nela.
+15. **Threshold auto-calibrado** — detectores PyTorch (cvae, vae, svdd, lstm_ae, tcn_ae) embutem `auto_threshold` no dict do modelo ao treinar (P95×1.5 dos erros de treino; SVDD usa percentil 1-nu das distâncias). `is_anomaly(score, model)` usa o threshold do modelo quando presente; `anomaly_threshold` do config é apenas fallback.
 
 ---
 
