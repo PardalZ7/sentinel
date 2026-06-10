@@ -82,12 +82,26 @@ app.post('/webhook', async (req, res) => {
     const topicArn = buildTopicArn(topicName);
     console.log(`[WEBHOOK] publishing to SNS — TopicArn: ${topicArn}`);
 
+    const messageAttributes = {
+      source: { DataType: 'String', StringValue: 'webhook' },
+    };
+
+    // Add custom headers as message attributes (X-* headers)
+    Object.entries(req.headers).forEach(([key, value]) => {
+      if (key.startsWith('x-') || key.startsWith('X-')) {
+        const attrName = key.replace(/^x-/i, '').replace(/-/g, '_').substring(0, 256);
+        if (value && typeof value === 'string') {
+          messageAttributes[attrName] = { DataType: 'String', StringValue: value.substring(0, 1024) };
+        }
+      }
+    });
+
+    console.log(`[WEBHOOK] message attributes:`, JSON.stringify(messageAttributes));
+
     const result = await snsClient.send(new PublishCommand({
       TopicArn: topicArn,
       Message: JSON.stringify(payload),
-      MessageAttributes: {
-        source: { DataType: 'String', StringValue: 'webhook' },
-      },
+      MessageAttributes: messageAttributes,
     }));
 
     receivedCount++;
