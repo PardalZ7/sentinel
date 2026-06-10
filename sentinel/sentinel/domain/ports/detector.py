@@ -26,7 +26,8 @@ This separation allows:
 
 Score semantics differ by algorithm family:
   IsolationForest:  lower (more negative) score = more anomalous  → is_anomaly: score < threshold
-  cVAE / MAF / NRI: higher score = more anomalous (reconstruction error / neg log-likelihood)
+  all others (cVAE, MAF, VAE, SVDD, LSTM-AE, TCN-AE, NRI):
+                    higher score = more anomalous (reconstruction error / neg log-likelihood / distance)
                                                                   → is_anomaly: score > threshold
 
 Each implementation's is_anomaly() encapsulates the correct direction so callers
