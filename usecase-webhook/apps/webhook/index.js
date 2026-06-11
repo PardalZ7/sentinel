@@ -104,6 +104,12 @@ app.post('/webhook', async (req, res) => {
       }
     });
 
+    // Add status header if extracted from payload
+    if (statusHeader) {
+      messageAttributes.status = { DataType: 'String', StringValue: statusHeader };
+      console.log(`[WEBHOOK] added status to messageAttributes: ${statusHeader}`);
+    }
+
     console.log(`[WEBHOOK] message attributes:`, JSON.stringify(messageAttributes));
 
     const result = await snsClient.send(new PublishCommand({
