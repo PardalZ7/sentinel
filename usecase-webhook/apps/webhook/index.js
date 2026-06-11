@@ -3,6 +3,7 @@ const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
 const { v4: uuidv4 } = require('uuid');
 const chain = require('./transformers');
 const { SkipPublish } = require('./transformers/chain');
+const { getNestedValue } = require('./utils');
 
 const app = express();
 app.use(express.json());
@@ -11,6 +12,32 @@ const LOCALSTACK_ENDPOINT = process.env.LOCALSTACK_ENDPOINT;
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID || '000000000000';
 const DEFAULT_OUTPUT_TOPIC = process.env.DEFAULT_OUTPUT_TOPIC || 'ucwh-output';
+const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:8890';
+
+let cachedHeaders = [];
+let headersCacheTTL = 0;
+
+async function getConfiguredHeaders() {
+  const now = Date.now();
+  // Refresh cache every 5 seconds
+  if (cachedHeaders.length > 0 && now < headersCacheTTL) {
+    return cachedHeaders;
+  }
+
+  try {
+    const res = await fetch(`${DASHBOARD_URL}/headers`);
+    if (!res.ok) return cachedHeaders;
+    cachedHeaders = await res.json();
+    headersCacheTTL = now + 5000;
+    if (cachedHeaders.length > 0) {
+      console.log(`[WEBHOOK] fetched header mappings from dashboard:`, JSON.stringify(cachedHeaders));
+    }
+  } catch (err) {
+    console.warn(`[WEBHOOK] failed to fetch headers from dashboard:`, err.message);
+  }
+
+  return cachedHeaders;
+}
 
 // SNS topic name must match: [a-zA-Z0-9_-]{1,256}(.fifo)?
 const TOPIC_NAME_RE = /^[a-zA-Z0-9_-]{1,256}(\.fifo)?$/;
@@ -63,28 +90,38 @@ app.post('/webhook', async (req, res) => {
     return res.status(400).json({ error: `invalid topic name: "${topicName}"` });
   }
 
-  // Extract status from payload if not in headers
-  let statusHeader = req.headers['status'];
-  if (!statusHeader && payload.status !== undefined) {
-    statusHeader = String(payload.status);
-    console.log(`[WEBHOOK] extracted status from payload: ${statusHeader}`);
-  }
+  // Extract headers from payload using configured mappings
+  const configuredHeaders = await getConfiguredHeaders();
+  const extractedHeaders = {};
 
-  // Default to 'failed' if no status provided — ensures SNS filters always match
-  if (!statusHeader) {
-    statusHeader = 'failed';
-    console.log(`[WEBHOOK] no status provided, defaulting to: ${statusHeader}`);
-  }
+  configuredHeaders.forEach(mapping => {
+    const headerValue = getNestedValue(payload, mapping.path);
+    if (headerValue !== undefined && headerValue !== null) {
+      extractedHeaders[mapping.name] = String(headerValue);
+      console.log(`[WEBHOOK] extracted '${mapping.name}' from path '${mapping.path}': ${extractedHeaders[mapping.name]}`);
+    }
+  });
+
+  // Prioritize request headers over extracted values
+  const finalHeaders = {
+    'content-type': req.headers['content-type'],
+    'user-agent': req.headers['user-agent'],
+    'x-webhook-source': req.headers['x-webhook-source'],
+    ...extractedHeaders,
+  };
+
+  // Override with any request headers that match extraction mappings
+  configuredHeaders.forEach(mapping => {
+    if (req.headers[mapping.name]) {
+      finalHeaders[mapping.name] = req.headers[mapping.name];
+      console.log(`[WEBHOOK] header '${mapping.name}' from request overrides extracted value`);
+    }
+  });
 
   const context = {
     receivedAt,
     resolvedTopic: topicName,
-    headers: {
-      'content-type': req.headers['content-type'],
-      'user-agent': req.headers['user-agent'],
-      'x-webhook-source': req.headers['x-webhook-source'],
-      ...(statusHeader && { 'status': statusHeader }),
-    },
+    headers: finalHeaders,
   };
 
   try {
@@ -107,21 +144,24 @@ app.post('/webhook', async (req, res) => {
       source: { DataType: 'String', StringValue: 'webhook' },
     };
 
-    // Add custom headers as message attributes (X-* headers)
+    // Add configured headers as message attributes
+    Object.entries(finalHeaders).forEach(([key, value]) => {
+      if (value && typeof value === 'string') {
+        const attrName = key.replace(/^x-/i, '').replace(/-/g, '_').substring(0, 256);
+        messageAttributes[attrName] = { DataType: 'String', StringValue: value.substring(0, 1024) };
+        console.log(`[WEBHOOK] added header '${key}' to messageAttributes: ${value}`);
+      }
+    });
+
+    // Add remaining X-* headers from request
     Object.entries(req.headers).forEach(([key, value]) => {
-      if (key.startsWith('x-') || key.startsWith('X-')) {
+      if ((key.startsWith('x-') || key.startsWith('X-')) && !messageAttributes[key]) {
         const attrName = key.replace(/^x-/i, '').replace(/-/g, '_').substring(0, 256);
         if (value && typeof value === 'string') {
           messageAttributes[attrName] = { DataType: 'String', StringValue: value.substring(0, 1024) };
         }
       }
     });
-
-    // Add status header if extracted from payload
-    if (statusHeader) {
-      messageAttributes.status = { DataType: 'String', StringValue: statusHeader };
-      console.log(`[WEBHOOK] added status to messageAttributes: ${statusHeader}`);
-    }
 
     console.log(`[WEBHOOK] message attributes:`, JSON.stringify(messageAttributes));
 

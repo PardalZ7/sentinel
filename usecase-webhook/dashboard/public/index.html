@@ -143,6 +143,17 @@
       </div>
     </div>
 
+    <!-- Headers configuration -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Webhook Headers</h2>
+        <button onclick="showAddHeaderDialog()" style="font-size:12px;padding:4px 10px;">+ Add Header</button>
+      </div>
+      <div class="panel-body" style="padding:12px;">
+        <div id="headers-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
+    </div>
+
     <!-- Payload log -->
     <div class="panel">
       <div class="panel-header">
@@ -156,6 +167,27 @@
         <div class="output-log" id="output-log">
           <span class="empty-log">No webhooks received yet…</span>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header dialog -->
+  <div id="header-dialog" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1000;">
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;width:90%;max-width:400px;box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+      <h3 style="color:#e6edf3;margin-bottom:16px;font-size:16px;">Add Header Mapping</h3>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px;">
+        <div>
+          <label style="display:block;color:#8b949e;font-size:12px;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Header Name</label>
+          <input type="text" id="dialog-header-name" placeholder="e.g., status" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#c9d1d9;font-family:monospace;">
+        </div>
+        <div>
+          <label style="display:block;color:#8b949e;font-size:12px;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Path to Value</label>
+          <input type="text" id="dialog-header-path" placeholder="e.g., data.execution.status" style="width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#c9d1d9;font-family:monospace;">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="closeHeaderDialog()" style="background:#21262d;">Cancel</button>
+        <button onclick="saveHeader()" style="background:#1f6b3a;color:#3fb950;border-color:#238636;">Save</button>
       </div>
     </div>
   </div>
@@ -272,12 +304,112 @@
       }
     }
 
+    // ── Headers Management ───────────────────────────────────────────────────
+
+    async function loadHeaders() {
+      try {
+        const res = await fetch('/app/headers');
+        if (!res.ok) return;
+        const headers = await res.json();
+        renderHeaders(headers);
+      } catch (e) {
+        console.error('Failed to load headers:', e);
+      }
+    }
+
+    function renderHeaders(headers) {
+      const container = document.getElementById('headers-list');
+      if (!headers || headers.length === 0) {
+        container.innerHTML = '<span style="color:#6e7681;text-align:center;padding:20px;font-style:italic;">No headers configured yet</span>';
+        return;
+      }
+
+      container.innerHTML = '';
+      headers.forEach(h => {
+        const div = document.createElement('div');
+        div.style.cssText = 'background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:12px;display:flex;justify-content:space-between;align-items:center;font-family:monospace;';
+
+        const info = document.createElement('div');
+        info.style.cssText = 'display:flex;flex-direction:column;gap:4px;flex:1;';
+        info.innerHTML = `
+          <span style="color:#58a6ff;font-weight:600;">${h.name}</span>
+          <span style="color:#8b949e;font-size:12px;">${h.path}</span>
+        `;
+
+        const btns = document.createElement('div');
+        btns.style.cssText = 'display:flex;gap:6px;';
+        btns.innerHTML = `
+          <button onclick="deleteHeader('${h.id}')" style="background:#6e1515;color:#f85149;border-color:#f85149;padding:4px 8px;font-size:11px;">Delete</button>
+        `;
+
+        div.appendChild(info);
+        div.appendChild(btns);
+        container.appendChild(div);
+      });
+    }
+
+    function showAddHeaderDialog() {
+      document.getElementById('header-dialog').style.display = 'flex';
+      document.getElementById('dialog-header-name').value = '';
+      document.getElementById('dialog-header-path').value = '';
+      document.getElementById('dialog-header-name').focus();
+    }
+
+    function closeHeaderDialog() {
+      document.getElementById('header-dialog').style.display = 'none';
+    }
+
+    async function saveHeader() {
+      const name = document.getElementById('dialog-header-name').value.trim();
+      const path = document.getElementById('dialog-header-path').value.trim();
+
+      if (!name || !path) {
+        alert('Please fill in both fields');
+        return;
+      }
+
+      try {
+        const res = await fetch('/app/headers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, path })
+        });
+
+        if (!res.ok) {
+          alert('Failed to save header');
+          return;
+        }
+
+        closeHeaderDialog();
+        loadHeaders();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function deleteHeader(id) {
+      if (!confirm('Delete this header?')) return;
+
+      try {
+        const res = await fetch(`/app/headers/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          alert('Failed to delete header');
+          return;
+        }
+        loadHeaders();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
     // ── Init ──────────────────────────────────────────────────────────────────
 
     refreshLog();
     pollStats();
+    loadHeaders();
     setInterval(refreshLog, 2000);
     setInterval(pollStats, 2000);
+    setInterval(loadHeaders, 3000);
   </script>
 </body>
 </html>
