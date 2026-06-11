@@ -110,6 +110,8 @@ class TopologyManager:
             return
         agent_names = {a.name for a in topo.config.agents}
         cortex_names = {c.name for c in topo.config.cortex}
+
+        # Cancel running tasks
         for name, task in topo.tasks.items():
             task.cancel()
             if self._dashboard_state:
@@ -117,6 +119,10 @@ class TopologyManager:
                     self._dashboard_state.unregister_agent(name)
                 elif name in cortex_names:
                     self._dashboard_state.unregister_cortex(name)
+
+        # Clean up residual data (Redis, disk models, etc.)
+        await self._cleanup_topology_data(topo.config, topology_id)
+
         logger.info("topology_removed", topology=topology_id)
 
     def get_status(self) -> dict:
@@ -138,6 +144,83 @@ class TopologyManager:
         for topology_id, config in store.load_all().items():
             logger.info("topology_restoring", topology=topology_id)
             await self.apply(topology_id, config)
+
+    async def _cleanup_topology_data(self, config: SentinelConfig, topology_id: str) -> None:
+        """Clean up all residual data from the topology: Redis keys, disk models, etc."""
+        # Clean Redis correlation keys for agents and temporal layers
+        await self._cleanup_redis(config)
+
+        # Clean disk models for agents, detectors, and cortex
+        await self._cleanup_disk_models(config)
+
+        logger.info("topology_data_cleaned", topology=topology_id)
+
+    async def _cleanup_redis(self, config: SentinelConfig) -> None:
+        """Delete all Redis keys associated with agents and temporal layers."""
+        if not config.redis:
+            return
+
+        try:
+            import redis.asyncio as aioredis
+
+            client = aioredis.Redis(
+                host=config.redis.host,
+                port=config.redis.port,
+                db=0,
+                decode_responses=True,
+            )
+            agent_names = {a.name for a in config.agents}
+            temporal_names = {t.name for t in (config.temporal_layers or [])}
+            all_component_names = agent_names | temporal_names
+
+            # Delete Redis keys matching pattern {component_name}:*
+            for name in all_component_names:
+                pattern = f"{name}:*"
+                keys = []
+                cursor = 0
+                while True:
+                    cursor, batch = await client.scan(cursor, match=pattern)
+                    keys.extend(batch)
+                    if cursor == 0:
+                        break
+
+                if keys:
+                    await client.delete(*keys)
+                    logger.info("redis_keys_cleaned", component=name, count=len(keys))
+
+            await client.aclose()
+        except Exception as exc:
+            logger.warning("redis_cleanup_failed", error=str(exc))
+
+    async def _cleanup_disk_models(self, config: SentinelConfig) -> None:
+        """Delete all disk models for agents, detectors, and cortex."""
+        import shutil
+        from pathlib import Path
+
+        if not config.storage_path:
+            return
+
+        base_path = Path(config.storage_path).expanduser()
+
+        # Delete agent models (per-detector and legacy paths)
+        for agent in config.agents:
+            agent_dir = base_path / "agents" / agent.name
+            if agent_dir.exists():
+                try:
+                    shutil.rmtree(agent_dir)
+                    logger.info("agent_models_cleaned", agent=agent.name)
+                except Exception as exc:
+                    logger.warning("agent_cleanup_failed", agent=agent.name, error=str(exc))
+
+        # Delete cortex models
+        for cortex in config.cortex:
+            cortex_dir = base_path / "cortex" / cortex.name
+            if cortex_dir.exists():
+                try:
+                    shutil.rmtree(cortex_dir)
+                    logger.info("cortex_models_cleaned", cortex=cortex.name)
+                except Exception as exc:
+                    logger.warning("cortex_cleanup_failed", cortex=cortex.name, error=str(exc))
 
     def _merge_infra(self, topology_config: SentinelConfig) -> SentinelConfig:
         """Return topology config with infra settings overridden by base_config."""
