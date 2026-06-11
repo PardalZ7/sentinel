@@ -1,5 +1,6 @@
 const express = require('express');
 const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
+const { v4: uuidv4 } = require('uuid');
 const chain = require('./transformers');
 const { SkipPublish } = require('./transformers/chain');
 
@@ -48,6 +49,12 @@ app.post('/webhook', async (req, res) => {
   if (payload.output_topic !== undefined) {
     topicName = payload.output_topic;
     delete payload.output_topic;
+  }
+
+  // Generate id if missing
+  if (payload.id === undefined) {
+    payload.id = uuidv4();
+    console.log(`[WEBHOOK] generated id: ${payload.id}`);
   }
 
   console.log(`[WEBHOOK] resolved topic: ${topicName}`);
