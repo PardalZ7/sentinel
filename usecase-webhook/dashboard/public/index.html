@@ -126,8 +126,11 @@
   <header>
     <h1>Sentinel</h1>
     <span class="subtitle">Usecase Webhook</span>
-    <button class="btn-topology" id="topology-btn" onclick="generateTopology()" style="margin-left:auto;">⬡ Generate Topology</button>
-    <span id="topology-status" style="font-size:12px;color:#8b949e;margin-left:8px;"></span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+      <button class="btn-topology" id="topology-btn" onclick="generateTopology()">⬡ Generate Topology</button>
+      <button class="btn-topology" id="clear-btn" onclick="clearTopology()" style="background:#6e1515;color:#f85149;border-color:#f85149;">🗑 Clear Topology</button>
+      <span id="topology-status" style="font-size:12px;color:#8b949e;margin-left:8px;"></span>
+    </div>
   </header>
 
   <div class="main">
@@ -161,6 +164,7 @@
         <div style="display:flex;align-items:center;gap:10px;">
           <span class="output-status" id="output-status"></span>
           <button onclick="refreshLog()" style="font-size:12px;padding:4px 10px;">↻ Refresh</button>
+          <button onclick="clearLog()" style="font-size:12px;padding:4px 10px;background:#6e1515;color:#f85149;border-color:#f85149;">🗑 Clear</button>
         </div>
       </div>
       <div class="panel-body" style="padding:12px;">
@@ -262,6 +266,22 @@
       }
     }
 
+    async function clearLog() {
+      if (!confirm('Clear all payloads?')) return;
+      try {
+        const res = await fetch('/app/buffer/clear', { method: 'POST' });
+        if (!res.ok) {
+          alert('Failed to clear buffer');
+          return;
+        }
+        const log = document.getElementById('output-log');
+        log.innerHTML = '<span class="empty-log">No webhooks received yet…</span>';
+        document.getElementById('output-status').textContent = '';
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
     // ── Stats polling ─────────────────────────────────────────────────────────
 
     async function pollStats() {
@@ -293,6 +313,36 @@
         } else {
           const msg = data.body?.error || data.body?.detail || JSON.stringify(data.body);
           status.textContent = `Deploy failed: ${msg}`;
+          status.style.color = '#f85149';
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.style.color = '#f85149';
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => { status.textContent = ''; }, 6000);
+      }
+    }
+
+    async function clearTopology() {
+      if (!confirm('Clear topology and all buffered data? This cannot be undone.')) return;
+      const btn = document.getElementById('clear-btn');
+      const status = document.getElementById('topology-status');
+      btn.disabled = true;
+      status.textContent = 'Clearing topology…';
+      status.style.color = '#8b949e';
+      try {
+        const res = await fetch('/clear-topology', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          status.textContent = `Cleared ✓ topology and data removed`;
+          status.style.color = '#3fb950';
+          const log = document.getElementById('output-log');
+          log.innerHTML = '<span class="empty-log">No webhooks received yet…</span>';
+          document.getElementById('output-status').textContent = '';
+        } else {
+          const msg = data.error || JSON.stringify(data);
+          status.textContent = `Clear failed: ${msg}`;
           status.style.color = '#f85149';
         }
       } catch (e) {
@@ -407,7 +457,6 @@
     refreshLog();
     pollStats();
     loadHeaders();
-    setInterval(refreshLog, 2000);
     setInterval(pollStats, 2000);
     setInterval(loadHeaders, 3000);
   </script>

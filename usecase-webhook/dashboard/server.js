@@ -86,9 +86,33 @@ app.get('/app/health', async (req, res) => {
 
 app.get('/app/buffer', (req, res) => res.json(buffer));
 
+app.post('/app/buffer/clear', (req, res) => {
+  buffer = [];
+  lastReceivedAt = null;
+  res.json({ ok: true });
+});
+
 app.post('/setup-topology', async (req, res) => {
   const result = await deployWithRetry(SENTINEL_CONFIG_PATH, { maxRetries: 3, retryMs: 1000 });
   res.status(result.ok ? 200 : 500).json(result);
+});
+
+app.post('/clear-topology', async (req, res) => {
+  const { SENTINEL_URL } = require('./sentinel_cp');
+  const url = `${SENTINEL_URL}/cp/topologies/${encodeURIComponent(TOPOLOGY_ID)}`;
+  try {
+    const response = await fetch(url, { method: 'DELETE' });
+    const body = await response.json();
+    if (response.ok) {
+      buffer = [];
+      lastReceivedAt = null;
+      res.json({ ok: true, status: response.status, body });
+    } else {
+      res.status(response.status).json({ ok: false, error: body.error || 'Failed to delete topology' });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // ── Headers endpoints ─────────────────────────────────────────────────────────
