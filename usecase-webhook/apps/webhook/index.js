@@ -56,6 +56,13 @@ app.post('/webhook', async (req, res) => {
     return res.status(400).json({ error: `invalid topic name: "${topicName}"` });
   }
 
+  // Extract status from payload if not in headers
+  let statusHeader = req.headers['status'];
+  if (!statusHeader && payload.status !== undefined) {
+    statusHeader = String(payload.status);
+    console.log(`[WEBHOOK] extracted status from payload: ${statusHeader}`);
+  }
+
   const context = {
     receivedAt,
     resolvedTopic: topicName,
@@ -63,6 +70,7 @@ app.post('/webhook', async (req, res) => {
       'content-type': req.headers['content-type'],
       'user-agent': req.headers['user-agent'],
       'x-webhook-source': req.headers['x-webhook-source'],
+      ...(statusHeader && { 'status': statusHeader }),
     },
   };
 
