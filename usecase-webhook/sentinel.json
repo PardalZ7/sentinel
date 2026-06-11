@@ -63,7 +63,13 @@
           "heartbeat_interval_s": 15,
           "send_all_events": false
         },
-        "denial_rules": [],
+        "denial_rules": [
+          {
+            "name": "finished_but_not_executed",
+            "condition": "input.status == 'success' and input.executed == False",
+            "score": -1.0
+          }
+        ],
         "detectors": [
           {
             "name": "if_operational",
@@ -77,36 +83,6 @@
             "auto_infer_fp_threshold": 0.05,
             "denial_buffer_size": 200,
             "min_denial_recall": 0.5
-          },
-          {
-            "_comment": "vae_semantic — unconditional VAE over all numeric payload fields (auto-discovered). Flags events outside the learned distribution.",
-            "name": "vae_semantic",
-            "algorithm": "vae",
-            "phase": "TRAINING",
-            "training_window": 1000,
-            "test_buffer_size": 150,
-            "anomaly_threshold": 0.05,
-            "hidden_dim": 32,
-            "latent_dim": 8,
-            "learning_rate": 0.001,
-            "epochs": 30,
-            "kl_weight": 1.0,
-            "gating_detector": "if_operational",
-            "denial_buffer_size": 200,
-            "min_denial_recall": 0.5
-          },
-          {
-            "_comment": "lstm_sequence — LSTM Autoencoder over windows of 10 consecutive events. Detects anomalous temporal patterns.",
-            "name": "lstm_sequence",
-            "algorithm": "lstm_ae",
-            "phase": "TRAINING",
-            "training_window": 500,
-            "test_buffer_size": 100,
-            "anomaly_threshold": 0.05,
-            "sequence_length": 10,
-            "hidden_dim": 32,
-            "learning_rate": 0.001,
-            "epochs": 30
           }
         ]
       },
@@ -120,7 +96,13 @@
           "heartbeat_interval_s": 15,
           "send_all_events": false
         },
-        "denial_rules": [],
+        "denial_rules": [
+          {
+            "name": "automation_failed",
+            "condition": "input.status == 'failed'",
+            "score": -1.0
+          }
+        ],
         "detectors": [
           {
             "name": "if_operational",
@@ -134,38 +116,6 @@
             "auto_infer_fp_threshold": 0.05,
             "denial_buffer_size": 200,
             "min_denial_recall": 0.5
-          },
-          {
-            "_comment": "svdd_compact — Deep SVDD: learns a compact hypersphere around normal events in latent space; score = distance to center. Complements VAE: distance-to-normal instead of likelihood.",
-            "name": "svdd_compact",
-            "algorithm": "svdd",
-            "phase": "TRAINING",
-            "training_window": 1000,
-            "test_buffer_size": 150,
-            "anomaly_threshold": 0.05,
-            "hidden_dim": 32,
-            "latent_dim": 8,
-            "learning_rate": 0.001,
-            "epochs": 30,
-            "nu": 0.1,
-            "gating_detector": "if_operational",
-            "denial_buffer_size": 200,
-            "min_denial_recall": 0.5
-          },
-          {
-            "_comment": "tcn_sequence — TCN Autoencoder (dilated causal convolutions) over windows of 10 consecutive events. Same detection target as lstm_ae with faster parallel training.",
-            "name": "tcn_sequence",
-            "algorithm": "tcn_ae",
-            "phase": "TRAINING",
-            "training_window": 500,
-            "test_buffer_size": 100,
-            "anomaly_threshold": 0.05,
-            "sequence_length": 10,
-            "hidden_dim": 32,
-            "latent_dim": 8,
-            "kernel_size": 3,
-            "learning_rate": 0.001,
-            "epochs": 30
           }
         ]
       }
