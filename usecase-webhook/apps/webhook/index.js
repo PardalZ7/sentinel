@@ -70,6 +70,12 @@ app.post('/webhook', async (req, res) => {
     console.log(`[WEBHOOK] extracted status from payload: ${statusHeader}`);
   }
 
+  // Default to 'failed' if no status provided — ensures SNS filters always match
+  if (!statusHeader) {
+    statusHeader = 'failed';
+    console.log(`[WEBHOOK] no status provided, defaulting to: ${statusHeader}`);
+  }
+
   const context = {
     receivedAt,
     resolvedTopic: topicName,

@@ -15,28 +15,46 @@ OUTPUT_TOPIC_ARN=$(aws --endpoint-url=$ENDPOINT sns create-topic --topic-name uc
 
 echo "Creating SQS queues..."
 
-# Engine input queue — subscribed to ucwh-output for Sentinel observation
-aws --endpoint-url=$ENDPOINT sqs create-queue --queue-name ucwh-engine01-input
+# Engine01 input queue — receives SUCCESS messages (status=finished) from webhook
+aws --endpoint-url=$ENDPOINT sqs create-queue --queue-name uc2-engine01-input
 
-# Pairs queue — engine publishes correlated pairs here; agent consumes from it
-aws --endpoint-url=$ENDPOINT sqs create-queue --queue-name ucwh-agent01-pairs
+# Engine02 input queue — receives FAILURE messages (status != finished) from webhook
+aws --endpoint-url=$ENDPOINT sqs create-queue --queue-name uc2-engine02-input
+
+# Agent pairs queues — engines publish correlated pairs here; agents consume from these
+aws --endpoint-url=$ENDPOINT sqs create-queue --queue-name uc2-agent01-pairs
+
+aws --endpoint-url=$ENDPOINT sqs create-queue --queue-name uc2-agent02-pairs
 
 # Alarm queue
 aws --endpoint-url=$ENDPOINT sqs create-queue --queue-name sentinel-alarms
 
-echo "Subscribing engine input queue to ucwh-output topic..."
+echo "Subscribing engine input queues to ucwh-output topic with filters..."
 
-ENGINE01_QUEUE_ARN="arn:aws:sqs:${REGION}:${ACCOUNT}:ucwh-engine01-input"
+ENGINE01_QUEUE_ARN="arn:aws:sqs:${REGION}:${ACCOUNT}:uc2-engine01-input"
+ENGINE02_QUEUE_ARN="arn:aws:sqs:${REGION}:${ACCOUNT}:uc2-engine02-input"
 
+# Subscribe engine01 to SUCCESS messages only (status=finished)
 aws --endpoint-url=$ENDPOINT sns subscribe \
     --topic-arn "$OUTPUT_TOPIC_ARN" \
     --protocol sqs \
-    --notification-endpoint "$ENGINE01_QUEUE_ARN"
+    --notification-endpoint "$ENGINE01_QUEUE_ARN" \
+    --attributes "FilterPolicy={\"status\":[\"finished\"]}"
+
+# Subscribe engine02 to FAILURE messages (any status that is NOT "finished")
+# Uses SNS FilterPolicy "anything-but" operator
+aws --endpoint-url=$ENDPOINT sns subscribe \
+    --topic-arn "$OUTPUT_TOPIC_ARN" \
+    --protocol sqs \
+    --notification-endpoint "$ENGINE02_QUEUE_ARN" \
+    --attributes "FilterPolicy={\"status\":[{\"anything-but\":\"finished\"}]}"
 
 echo ""
 echo "Setup complete!"
 echo ""
-echo "Webhook publishes to : arn:aws:sns:${REGION}:${ACCOUNT}:ucwh-output"
-echo "Engine01 input       : ucwh-engine01-input"
-echo "Agent01 pairs        : ucwh-agent01-pairs"
-echo "Alarm queue          : sentinel-alarms"
+echo "Webhook publishes to       : arn:aws:sns:${REGION}:${ACCOUNT}:ucwh-output"
+echo "Engine01 input (SUCCESS)   : uc2-engine01-input   (filters: status=finished)"
+echo "Engine02 input (FAILURE)   : uc2-engine02-input   (filters: status!=finished)"
+echo "Agent01 pairs              : uc2-agent01-pairs"
+echo "Agent02 pairs              : uc2-agent02-pairs"
+echo "Alarm queue                : sentinel-alarms"
