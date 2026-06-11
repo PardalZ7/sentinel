@@ -377,6 +377,7 @@ class AgentRunner:
                     await self._handle_one_pair(msg, _training_tasks, prev_buf_counts)
 
             await asyncio.gather(*[_bounded(msg) for msg in batch], return_exceptions=True)
+            await self.pairs_transport.flush_acks()
 
     async def change_phase(
         self, new_phase: str, detector_name: str | None = None
