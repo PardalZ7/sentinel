@@ -66,7 +66,7 @@
         "denial_rules": [
           {
             "name": "finished_but_not_executed",
-            "condition": "input.status == 'success' and input.executed == false",
+            "condition": "input.status == 'success' and input.executed == False",
             "score": -1.0
           }
         ],
